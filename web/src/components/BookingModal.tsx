@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   X,
   CheckCircle,
@@ -55,7 +55,6 @@ export default function BookingModal({
     contactName: "Saunak Ghosh",
     email: "ops@cargofirst.com",
     phone: "+91 98765 43210",
-    kycSandboxStatus: "BASIC_VERIFIED",
     notes: "",
   });
 
@@ -109,6 +108,13 @@ export default function BookingModal({
     setFormData((prev) => ({ ...prev, commodity: describe(s.params) }));
     setParties((prev) => ({ ...prev, buyerName: prev.buyerName || s.buyerName }));
   };
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
@@ -208,6 +214,9 @@ export default function BookingModal({
       }}
     >
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="booking-title"
         className="card-shell"
         style={{
           width: "100%",
@@ -224,7 +233,7 @@ export default function BookingModal({
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "18px" }}>
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              <h3 className="font-heading" style={{ fontSize: "20px", fontWeight: 700, color: "var(--text-main)" }}>
+              <h3 id="booking-title" className="font-heading" style={{ fontSize: "20px", fontWeight: 700, color: "var(--text-main)" }}>
                 Book Cargo Inspection
               </h3>
               {contractInfo && (
@@ -241,6 +250,7 @@ export default function BookingModal({
 
           <button
             onClick={onClose}
+            aria-label="Close booking"
             style={{
               width: "32px",
               height: "32px",
@@ -418,11 +428,12 @@ export default function BookingModal({
             {step === 1 && (
               <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
                 <div>
-                  <label style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-main)", display: "block", marginBottom: "6px" }}>
+                  <label htmlFor="booking-field-1" style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-main)", display: "block", marginBottom: "6px" }}>
                     Service Type
                   </label>
                   <select
-                    value={formData.serviceName}
+                    id="booking-field-1"
+value={formData.serviceName}
                     onChange={(e) => setFormData({ ...formData, serviceName: e.target.value })}
                     style={{
                       width: "100%",
@@ -443,11 +454,12 @@ export default function BookingModal({
 
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
                   <div>
-                    <label style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-main)", display: "block", marginBottom: "6px" }}>
+                    <label htmlFor="booking-field-2" style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-main)", display: "block", marginBottom: "6px" }}>
                       Loading Port / Location
                     </label>
                     <input
-                      type="text"
+                      id="booking-field-2"
+type="text"
                       value={formData.portLocation}
                       onChange={(e) => setFormData({ ...formData, portLocation: e.target.value })}
                       style={{
@@ -463,11 +475,12 @@ export default function BookingModal({
                   </div>
 
                   <div>
-                    <label style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-main)", display: "block", marginBottom: "6px" }}>
+                    <label htmlFor="booking-field-3" style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-main)", display: "block", marginBottom: "6px" }}>
                       Export Destination Country
                     </label>
                     <input
-                      type="text"
+                      id="booking-field-3"
+type="text"
                       value={formData.destinationCountry}
                       onChange={(e) => setFormData({ ...formData, destinationCountry: e.target.value })}
                       style={{
@@ -485,11 +498,12 @@ export default function BookingModal({
 
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
                   <div>
-                    <label style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-main)", display: "block", marginBottom: "6px" }}>
+                    <label htmlFor="booking-field-4" style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-main)", display: "block", marginBottom: "6px" }}>
                       Commodity & Spec
                     </label>
                     <input
-                      type="text"
+                      id="booking-field-4"
+type="text"
                       value={formData.commodity}
                       onChange={(e) => setFormData({ ...formData, commodity: e.target.value })}
                       style={{
@@ -534,11 +548,12 @@ export default function BookingModal({
                   </div>
 
                   <div>
-                    <label style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-main)", display: "block", marginBottom: "6px" }}>
+                    <label htmlFor="booking-field-5" style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-main)", display: "block", marginBottom: "6px" }}>
                       Estimated Volume (Metric Tons)
                     </label>
                     <input
-                      type="number"
+                      id="booking-field-5"
+type="number"
                       value={formData.volumeTons}
                       onChange={(e) => setFormData({ ...formData, volumeTons: parseFloat(e.target.value) || 0 })}
                       style={{
@@ -568,11 +583,12 @@ export default function BookingModal({
               <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
                   <div>
-                    <label style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-main)", display: "block", marginBottom: "6px" }}>
+                    <label htmlFor="booking-field-6" style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-main)", display: "block", marginBottom: "6px" }}>
                       Start Date
                     </label>
                     <input
-                      type="date"
+                      id="booking-field-6"
+type="date"
                       value={formData.inspectionDate}
                       onChange={(e) => setFormData({ ...formData, inspectionDate: e.target.value })}
                       style={{
@@ -588,11 +604,12 @@ export default function BookingModal({
                   </div>
 
                   <div>
-                    <label style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-main)", display: "block", marginBottom: "6px" }}>
+                    <label htmlFor="booking-field-7" style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-main)", display: "block", marginBottom: "6px" }}>
                       Estimated Duration (Days)
                     </label>
                     <input
-                      type="number"
+                      id="booking-field-7"
+type="number"
                       min="1"
                       max={bookingMode === "quick" ? 5 : 30}
                       value={formData.jobDurationDays}
@@ -636,7 +653,7 @@ export default function BookingModal({
                   </div>
                 ) : (
                   <div>
-                    <label style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-main)", display: "block", marginBottom: "6px" }}>
+                    <label htmlFor="booking-field-8" style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-main)", display: "block", marginBottom: "6px" }}>
                       Target Inquiry Budget (USD) — Providers will bid between $500 to $5,000+
                     </label>
                     <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
@@ -669,7 +686,8 @@ export default function BookingModal({
                     Special Field Instructions / Hold Access Notes
                   </label>
                   <textarea
-                    rows={2}
+                    id="booking-field-8"
+rows={2}
                     placeholder="e.g. Sampling every 500 bags, check hatch 2 for prior fertilizer residue, take hold temperature."
                     value={formData.notes}
                     onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
@@ -693,14 +711,14 @@ export default function BookingModal({
                   </button>
 
                   <button onClick={() => setStep(3)} className="btn-primary" style={{ padding: "10px 20px" }}>
-                    <span>Next: Trader Profile & KYC</span>
+                    <span>Next: Your details</span>
                     <ArrowRight size={14} weight="bold" />
                   </button>
                 </div>
               </div>
             )}
 
-            {/* Step 3: Trader Profile & Sandbox KYC */}
+            {/* Step 3: Your details and buyer/seller verification */}
             {step === 3 && (
               <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
                 {/* Buyer / Seller Verification */}
@@ -729,11 +747,12 @@ export default function BookingModal({
                 </fieldset>
 
                 <div>
-                  <label style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-main)", display: "block", marginBottom: "6px" }}>
+                  <label htmlFor="booking-field-9" style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-main)", display: "block", marginBottom: "6px" }}>
                     Company / Trading House
                   </label>
                   <input
-                    type="text"
+                    id="booking-field-9"
+type="text"
                     required
                     value={formData.companyName}
                     onChange={(e) => setFormData({ ...formData, companyName: e.target.value })}
@@ -751,11 +770,12 @@ export default function BookingModal({
 
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
                   <div>
-                    <label style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-main)", display: "block", marginBottom: "6px" }}>
+                    <label htmlFor="booking-field-10" style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-main)", display: "block", marginBottom: "6px" }}>
                       Contact Person
                     </label>
                     <input
-                      type="text"
+                      id="booking-field-10"
+type="text"
                       required
                       value={formData.contactName}
                       onChange={(e) => setFormData({ ...formData, contactName: e.target.value })}
@@ -772,11 +792,12 @@ export default function BookingModal({
                   </div>
 
                   <div>
-                    <label style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-main)", display: "block", marginBottom: "6px" }}>
+                    <label htmlFor="booking-field-11" style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-main)", display: "block", marginBottom: "6px" }}>
                       Official Email
                     </label>
                     <input
-                      type="email"
+                      id="booking-field-11"
+type="email"
                       required
                       value={formData.email}
                       onChange={(e) => setFormData({ ...formData, email: e.target.value })}

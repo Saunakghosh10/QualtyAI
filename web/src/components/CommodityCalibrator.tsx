@@ -325,7 +325,7 @@ export default function CommodityCalibrator({ onInjectIntoBooking }: CommodityCa
                 borderRadius: "9999px",
                 fontSize: "12.5px",
                 fontWeight: 500,
-                backgroundColor: isActive ? "var(--accent-primary)" : "var(--bg-card)",
+                backgroundColor: isActive ? "var(--accent-fill)" : "var(--bg-card)",
                 color: isActive ? "#FFFFFF" : "var(--text-secondary)",
                 border: `1px solid ${isActive ? "var(--accent-primary)" : "var(--border-main)"}`,
                 boxShadow: isActive ? "var(--shadow-sm)" : "none",
@@ -440,6 +440,7 @@ export default function CommodityCalibrator({ onInjectIntoBooking }: CommodityCa
           onSubmit={handleSaveSpec}
           style={{
             display: "flex",
+            flexWrap: "wrap",
             alignItems: "center",
             gap: "10px",
             marginBottom: "20px",
@@ -457,7 +458,8 @@ export default function CommodityCalibrator({ onInjectIntoBooking }: CommodityCa
             value={newSpecName}
             onChange={(e) => setNewSpecName(e.target.value)}
             style={{
-              flex: 1,
+              flex: "1 1 180px",
+              minWidth: 0,
               padding: "8px 12px",
               borderRadius: "6px",
               border: "1px solid var(--border-main)",
@@ -473,7 +475,8 @@ export default function CommodityCalibrator({ onInjectIntoBooking }: CommodityCa
             value={newSpecRef}
             onChange={(e) => setNewSpecRef(e.target.value)}
             style={{
-              flex: 1,
+              flex: "1 1 180px",
+              minWidth: 0,
               padding: "8px 12px",
               borderRadius: "6px",
               border: "1px solid var(--border-main)",
@@ -559,6 +562,7 @@ export default function CommodityCalibrator({ onInjectIntoBooking }: CommodityCa
                 </span>
               </div>
               <input
+                aria-label="Broken Grain"
                 type="range"
                 min="0"
                 max="25"
@@ -582,6 +586,7 @@ export default function CommodityCalibrator({ onInjectIntoBooking }: CommodityCa
                 </span>
               </div>
               <input
+                aria-label="Purity / Foreign Matter"
                 type="range"
                 min="85"
                 max="100"
@@ -601,6 +606,7 @@ export default function CommodityCalibrator({ onInjectIntoBooking }: CommodityCa
                   </span>
                 </div>
                 <input
+                  aria-label="Damage Kernel"
                   type="range"
                   min="0"
                   max="10"
@@ -618,6 +624,7 @@ export default function CommodityCalibrator({ onInjectIntoBooking }: CommodityCa
                   </span>
                 </div>
                 <input
+                  aria-label="Chalky / Immature"
                   type="range"
                   min="0"
                   max="15"
@@ -638,6 +645,7 @@ export default function CommodityCalibrator({ onInjectIntoBooking }: CommodityCa
                   </span>
                 </div>
                 <input
+                  aria-label="Avg Length"
                   type="range"
                   min="1.0"
                   max="12.0"
@@ -655,6 +663,7 @@ export default function CommodityCalibrator({ onInjectIntoBooking }: CommodityCa
                   </span>
                 </div>
                 <input
+                  aria-label="Moisture %"
                   type="range"
                   min="0"
                   max="18"
@@ -691,7 +700,7 @@ export default function CommodityCalibrator({ onInjectIntoBooking }: CommodityCa
                       borderRadius: "6px",
                       fontSize: "11px",
                       fontWeight: 600,
-                      backgroundColor: params.liveInsects === 0 ? "var(--success)" : "var(--bg-card)",
+                      backgroundColor: params.liveInsects === 0 ? "var(--success-fill)" : "var(--bg-card)",
                       color: params.liveInsects === 0 ? "#FFFFFF" : "var(--text-secondary)",
                       border: "1px solid var(--border-main)",
                     }}
@@ -705,7 +714,7 @@ export default function CommodityCalibrator({ onInjectIntoBooking }: CommodityCa
                       borderRadius: "6px",
                       fontSize: "11px",
                       fontWeight: 600,
-                      backgroundColor: params.liveInsects > 0 ? "var(--danger)" : "var(--bg-card)",
+                      backgroundColor: params.liveInsects > 0 ? "var(--danger-fill)" : "var(--bg-card)",
                       color: params.liveInsects > 0 ? "#FFFFFF" : "var(--text-secondary)",
                       border: "1px solid var(--border-main)",
                     }}

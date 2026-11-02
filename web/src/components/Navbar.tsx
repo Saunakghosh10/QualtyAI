@@ -1,22 +1,22 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import { Sun, Moon, ArrowRight, Clock, User, ShieldCheck } from "@phosphor-icons/react";
+import React, { useState, useEffect, useSyncExternalStore } from "react";
+import { Sun, Moon, ArrowRight, Clock } from "@phosphor-icons/react";
 import { useTheme } from "@/context/ThemeContext";
 
 interface NavbarProps {
   onOpenBooking: () => void;
-  onOpenAuth: () => void;
-  currentUser?: { name: string; role: string } | null;
 }
 
-export default function Navbar({ onOpenBooking, onOpenAuth, currentUser }: NavbarProps) {
+const noopSubscribe = () => () => {};
+
+export default function Navbar({ onOpenBooking }: NavbarProps) {
   const { theme, toggleTheme } = useTheme();
   const [utcTime, setUtcTime] = useState<string>("");
-  const [mounted, setMounted] = useState<boolean>(false);
+  // true only after hydration, so the theme button never mismatches the server HTML
+  const mounted = useSyncExternalStore(noopSubscribe, () => true, () => false);
 
   useEffect(() => {
-    setMounted(true);
     const updateTime = () => {
       const now = new Date();
       setUtcTime(now.toISOString().substring(11, 19) + " UTC");
@@ -64,7 +64,7 @@ export default function Navbar({ onOpenBooking, onOpenAuth, currentUser }: Navba
               width: "32px",
               height: "32px",
               borderRadius: "8px",
-              backgroundColor: "var(--accent-primary)",
+              backgroundColor: "var(--accent-fill)",
               color: "#FFFFFF",
               display: "flex",
               alignItems: "center",
@@ -188,42 +188,6 @@ export default function Navbar({ onOpenBooking, onOpenAuth, currentUser }: Navba
             </span>
           </div>
 
-          {/* User Sign In / Profile */}
-          {currentUser ? (
-            <div
-              className="badge-pill"
-              style={{
-                backgroundColor: "var(--success-bg)",
-                color: "var(--success-text)",
-                border: "1px solid var(--success-border)",
-                fontSize: "12px",
-              }}
-            >
-              <ShieldCheck size={14} weight="bold" />
-              <span>{currentUser.name}</span>
-            </div>
-          ) : (
-            <button
-              onClick={onOpenAuth}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "5px",
-                fontSize: "13px",
-                fontWeight: 600,
-                color: "var(--text-secondary)",
-                padding: "6px 12px",
-                borderRadius: "8px",
-                cursor: "pointer",
-                transition: "color 0.15s",
-              }}
-              onMouseEnter={(e) => (e.currentTarget.style.color = "var(--accent-primary)")}
-              onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text-secondary)")}
-            >
-              <User size={15} />
-              <span>Sign In / KYC</span>
-            </button>
-          )}
 
           {/* Theme Toggle Button */}
           {mounted && (

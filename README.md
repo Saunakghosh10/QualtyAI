@@ -73,3 +73,23 @@ Listens on port `3214`.
    - Covers Indian ports (Mundra, Kakinada, JNPT, Kandla, Vizag) and international hubs (Dubai, Rotterdam, Singapore, Chittagong, Mombasa).
 4. **Interactive Enquiry Transaction Modal**:
    - Full 3-step workflow allowing traders to configure cargo specs, select standards, and submit structured enquiry payloads.
+
+---
+
+## Testing and CI/CD
+
+Run from `web/`:
+
+| Command | What it checks |
+|---|---|
+| `npm run lint` | ESLint, no errors allowed and the warning count may only go down |
+| `npm run typecheck` | TypeScript |
+| `npm test` / `npm run test:coverage` | Vitest unit tests for `src/lib` (orders, bids, flags, summary, evidence, market fit), coverage gate 80% |
+| `npm run test:e2e` | Playwright on a production build: full user flows on desktop and mobile, axe accessibility scans in light and dark theme, smoke checks |
+| `BASE_URL=https://qualty.ai npm run test:e2e` | Read-only smoke checks against a deployed site |
+
+Run `npm run build` once before `npm run test:e2e`; the tests start `next start` on port 3100.
+
+**CI** (`.github/workflows/ci.yml`) runs lint, types, unit tests with coverage, a dependency audit, the build, and the Playwright suite on every pull request and on pushes to `master`.
+
+**CD:** Vercel deploys `master` to qualty.ai on every merge. When Vercel reports the production deployment as successful, `.github/workflows/post-deploy-smoke.yml` runs the smoke tests against the live site. It can also be run by hand from the Actions tab. Dependabot opens weekly dependency update PRs.
