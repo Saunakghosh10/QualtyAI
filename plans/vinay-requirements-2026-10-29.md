@@ -36,7 +36,7 @@ The `server/` Express API has older register/login routes for customers, inspect
 The order follows the data each step needs. Each phase can ship on its own.
 
 ### Phase 0: decisions (before writing code)
-1. **Backend.** Keep the old Express + Postgres `server/`, or move to Supabase like CargoFirst/blinkus? Supabase gives us auth, Postgres with RLS, Realtime (chat) and Storage (evidence) out of the box. **Recommended: Supabase**, and retire `server/`.
+1. **Backend.** Decided 2026-11-02: no backend for now. Orders, specs, chat and evidence are kept in the browser (`web/src/lib/store.ts`). A backend comes later and will **not** share the CargoFirst Supabase project: its signup trigger would give every QualtyAI user a CargoFirst workspace, and its nurture job would send them CargoFirst marketing emails. When a backend is chosen, only `store.ts` changes.
 2. **Roles:** customer (buyer/seller), inspection company, inspector, admin.
 3. **Mobile:** inspectors capture photos on site. Is a mobile web app (PWA with the camera) enough for v1, or does it need a native app?
 
