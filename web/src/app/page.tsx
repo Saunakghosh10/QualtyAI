@@ -9,6 +9,7 @@ import CommodityCalibrator, { CommodityParams } from "@/components/CommodityCali
 import QualityEvidenceVault from "@/components/QualityEvidenceVault";
 import QualityPilot from "@/components/QualityPilot";
 import SurveyorNetwork from "@/components/SurveyorNetwork";
+import OrderRooms from "@/components/OrderRooms";
 import Footer from "@/components/Footer";
 import BookingModal from "@/components/BookingModal";
 import AuthModal from "@/components/AuthModal";
@@ -72,6 +73,9 @@ export default function Home() {
 
       {/* Section 01: Multi-Commodity Calibrator, Contract Upload & Quality Checker */}
       <CommodityCalibrator onInjectIntoBooking={handleInjectIntoBooking} />
+
+      {/* Order chatrooms: customer + inspection company + admin, reports, flags, summary */}
+      <OrderRooms onBook={handleOpenQuickBooking} />
 
       {/* Section 03: Quality Evidence Vault with GPS & Timestamp Watermarks */}
       <QualityEvidenceVault />

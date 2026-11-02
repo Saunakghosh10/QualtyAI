@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import {
   X,
   CheckCircle,
@@ -16,6 +16,7 @@ import {
   FileText,
 } from "@phosphor-icons/react";
 import { CommodityParams } from "./CommodityCalibrator";
+import { useDB, specLabel, checkParty, createOrder } from "@/lib/store";
 
 interface BookingModalProps {
   isOpen: boolean;
@@ -58,20 +59,56 @@ export default function BookingModal({
     notes: "",
   });
 
-  useEffect(() => {
-    if (initialServiceType) {
-      setFormData((prev) => ({ ...prev, serviceName: initialServiceType }));
-    }
-  }, [initialServiceType]);
+  const [seenService, setSeenService] = useState(initialServiceType);
+  if (initialServiceType !== seenService) {
+    setSeenService(initialServiceType);
+    if (initialServiceType) setFormData((prev) => ({ ...prev, serviceName: initialServiceType }));
+  }
 
-  useEffect(() => {
+  // Spec attached to the order: from the Calibrator or a saved buyer spec.
+  const savedSpecs = useDB().specs;
+  const [spec, setSpec] = useState<CommodityParams | null>(null);
+  const [specName, setSpecName] = useState<string | null>(null);
+  const [selectedSpecId, setSelectedSpecId] = useState("");
+
+  // Buyer / seller verification
+  const [parties, setParties] = useState({
+    buyerName: "",
+    buyerGstin: "",
+    buyerIec: "",
+    sellerName: "",
+    sellerGstin: "",
+    sellerIec: "",
+  });
+  const [partyProblems, setPartyProblems] = useState<string[]>([]);
+
+  const describe = (p: CommodityParams) => `${p.commodity} (broken ≤ ${p.broken}%, purity ≥ ${p.purity}%)`;
+
+  // When the Calibrator hands over new params, adopt them (adjusting state during render, not in an effect).
+  const [seenParams, setSeenParams] = useState<CommodityParams | null | undefined>(undefined);
+  if (injectedParams !== seenParams) {
+    setSeenParams(injectedParams);
     if (injectedParams) {
-      setFormData((prev) => ({
-        ...prev,
-        commodity: `${injectedParams.commodity} (Broken &le;${injectedParams.broken}%, Purity &ge;${injectedParams.purity}%)`,
-      }));
+      setSpec(injectedParams);
+      setSpecName(contractInfo?.specName ? `Calibrator: ${contractInfo.specName}` : "From the Calibrator");
+      setSelectedSpecId("");
+      setFormData((prev) => ({ ...prev, commodity: describe(injectedParams) }));
     }
-  }, [injectedParams]);
+  }
+
+  const applySavedSpec = (id: string) => {
+    setSelectedSpecId(id);
+    const s = savedSpecs.find((x) => x.id === id);
+    if (!s) {
+      setSpec(null);
+      setSpecName(null);
+      return;
+    }
+    setSpec(s.params);
+    setSpecName(specLabel(s));
+    setFormData((prev) => ({ ...prev, commodity: describe(s.params) }));
+    setParties((prev) => ({ ...prev, buyerName: prev.buyerName || s.buyerName }));
+  };
 
   if (!isOpen) return null;
 
@@ -87,20 +124,70 @@ export default function BookingModal({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    const buyer = checkParty({ name: parties.buyerName, gstin: parties.buyerGstin, iec: parties.buyerIec });
+    const seller = checkParty({ name: parties.sellerName, gstin: parties.sellerGstin, iec: parties.sellerIec });
+    const problems = [
+      ...buyer.problems.map((p) => `Buyer: ${p}`),
+      ...seller.problems.map((p) => `Seller: ${p}`),
+    ];
+    setPartyProblems(problems);
+    if (problems.length) return;
+
     setIsSubmitting(true);
-    setTimeout(() => {
-      setIsSubmitting(false);
-      const prefix = bookingMode === "quick" ? "QI" : "RI";
-      const generatedId = `${prefix}-2026-${Math.floor(1000 + Math.random() * 9000)}`;
-      setSubmittedRef(generatedId);
-    }, 1100);
+    const order = createOrder({
+      mode: bookingMode,
+      service: formData.serviceName,
+      commodity: formData.commodity,
+      spec,
+      specLabel: specName,
+      buyer: buyer.party,
+      seller: seller.party,
+      location: formData.portLocation,
+      inspectionDate: formData.inspectionDate,
+      volumeTons: formData.volumeTons,
+      customerName: `${formData.contactName} (${formData.companyName})`,
+    });
+    setIsSubmitting(false);
+    setSubmittedRef(order.id);
+  };
+
+  const openChatroom = () => {
+    const id = submittedRef;
+    handleReset();
+    if (id) {
+      window.dispatchEvent(new CustomEvent("qualty:open-order", { detail: id }));
+      document.getElementById("orders")?.scrollIntoView({ behavior: "smooth" });
+    }
   };
 
   const handleReset = () => {
     setSubmittedRef(null);
+    setPartyProblems([]);
     setStep(1);
     onClose();
   };
+
+  const partyInput = (key: keyof typeof parties, label: string, placeholder: string, required = false) => (
+    <label style={{ display: "flex", flexDirection: "column", gap: "4px", fontSize: "12px", fontWeight: 600, color: "var(--text-secondary)" }}>
+      {label}
+      <input
+        type="text"
+        required={required}
+        placeholder={placeholder}
+        value={parties[key]}
+        onChange={(e) => setParties({ ...parties, [key]: e.target.value })}
+        style={{
+          padding: "9px 12px",
+          borderRadius: "8px",
+          border: "1px solid var(--border-main)",
+          backgroundColor: "var(--bg-card)",
+          color: "var(--text-main)",
+          fontSize: "13.5px",
+          fontWeight: 400,
+        }}
+      />
+    </label>
+  );
 
   return (
     <div
@@ -195,8 +282,8 @@ export default function BookingModal({
 
             <p style={{ fontSize: "14px", color: "var(--text-secondary)", marginBottom: "20px", maxWidth: "460px", margin: "0 auto 20px" }}>
               {bookingMode === "quick"
-                ? `Surveyor matching confirmed for ${formData.portLocation}. Immediate dispatch SLA activated.`
-                : `Your inquiry has been broadcasted to accredited inspection companies. Surveyor bids ($500–$5,000) will appear in your dashboard.`}
+                ? `Your order chatroom is open with you, the inspection company and the Qualty admin team. All reports, photos and the final summary arrive there.`
+                : `Inspection companies can now bid on your enquiry. Compare bids in the order chatroom and accept the one you want.`}
             </p>
 
             <div
@@ -210,16 +297,21 @@ export default function BookingModal({
               }}
             >
               <div style={{ fontSize: "12px", color: "var(--text-muted)", marginBottom: "4px" }}>
-                Tracking Reference ID
+                Order number
               </div>
               <div className="font-mono" style={{ fontSize: "20px", fontWeight: 700, color: "var(--accent-primary)" }}>
                 {submittedRef}
               </div>
             </div>
 
-            <button onClick={handleReset} className="btn-primary" style={{ padding: "10px 24px" }}>
-              Done & Return
-            </button>
+            <div style={{ display: "flex", gap: "10px", justifyContent: "center", flexWrap: "wrap" }}>
+              <button onClick={handleReset} className="btn-secondary" style={{ padding: "10px 20px" }}>
+                Close
+              </button>
+              <button onClick={openChatroom} className="btn-primary" style={{ padding: "10px 24px" }}>
+                Open order chatroom
+              </button>
+            </div>
           </div>
         ) : (
           <div>
@@ -410,6 +502,35 @@ export default function BookingModal({
                         fontSize: "13.5px",
                       }}
                     />
+                    <select
+                      aria-label="Use a saved buyer spec"
+                      value={selectedSpecId}
+                      onChange={(e) => applySavedSpec(e.target.value)}
+                      style={{
+                        width: "100%",
+                        marginTop: "6px",
+                        padding: "8px 12px",
+                        borderRadius: "8px",
+                        border: "1px solid var(--border-main)",
+                        backgroundColor: "var(--bg-subtle)",
+                        color: "var(--text-main)",
+                        fontSize: "12.5px",
+                      }}
+                    >
+                      <option value="">
+                        {savedSpecs.length ? "Use a saved buyer spec" : "No saved specs yet (save one in the Calibrator)"}
+                      </option>
+                      {savedSpecs.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {specLabel(s)} ({s.params.commodity})
+                        </option>
+                      ))}
+                    </select>
+                    {specName && (
+                      <p style={{ fontSize: "11.5px", color: "var(--accent-text)", marginTop: "4px" }}>
+                        Spec attached: {specName}. Readings outside it get flagged.
+                      </p>
+                    )}
                   </div>
 
                   <div>
@@ -582,28 +703,30 @@ export default function BookingModal({
             {/* Step 3: Trader Profile & Sandbox KYC */}
             {step === 3 && (
               <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-                {/* KYC Sandbox Badge */}
-                <div
-                  style={{
-                    padding: "12px 14px",
-                    borderRadius: "8px",
-                    backgroundColor: "var(--success-bg)",
-                    border: "1px solid var(--success-border)",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    fontSize: "12.5px",
-                    color: "var(--success-text)",
-                  }}
-                >
-                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                    <ShieldCheck size={18} weight="bold" />
-                    <span>
-                      Service Receiver Status: <strong>KYC Sandbox Verified</strong>
-                    </span>
+                {/* Buyer / Seller Verification */}
+                <fieldset style={{ border: "1px solid var(--border-main)", borderRadius: "10px", padding: "14px", display: "flex", flexDirection: "column", gap: "12px" }}>
+                  <legend style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "13px", fontWeight: 600, color: "var(--text-main)", padding: "0 6px" }}>
+                    <ShieldCheck size={16} weight="bold" /> Buyer and seller verification
+                  </legend>
+                  <p style={{ fontSize: "12px", color: "var(--text-muted)", marginTop: "-4px", textWrap: "pretty" }}>
+                    Add GSTIN or IEC and we check the format now. The Qualty admin confirms against the registry from the order chatroom.
+                  </p>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: "10px" }}>
+                    {partyInput("buyerName", "Buyer", "Buyer company", true)}
+                    {partyInput("buyerGstin", "Buyer GSTIN (optional)", "27AAPFU0939F1ZV")}
+                    {partyInput("buyerIec", "Buyer IEC (optional)", "AAPFU0939F")}
+                    {partyInput("sellerName", "Seller", "Seller company", true)}
+                    {partyInput("sellerGstin", "Seller GSTIN (optional)", "24AABCS1429B1Z5")}
+                    {partyInput("sellerIec", "Seller IEC (optional)", "AABCS1429B")}
                   </div>
-                  <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>Instant Booking Active</span>
-                </div>
+                  {partyProblems.length > 0 && (
+                    <ul role="alert" style={{ margin: 0, paddingLeft: "18px", fontSize: "12.5px", color: "var(--danger-text)" }}>
+                      {partyProblems.map((p) => (
+                        <li key={p}>{p}</li>
+                      ))}
+                    </ul>
+                  )}
+                </fieldset>
 
                 <div>
                   <label style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-main)", display: "block", marginBottom: "6px" }}>
@@ -680,13 +803,13 @@ export default function BookingModal({
                     {isSubmitting ? (
                       <>
                         <SpinnerGap size={16} className="animate-spin" />
-                        <span>Processing Dispatch...</span>
+                        <span>Creating order…</span>
                       </>
                     ) : (
                       <>
                         <ShieldCheck size={16} weight="bold" />
                         <span>
-                          {bookingMode === "quick" ? "Confirm & Dispatch Surveyor" : "Publish Inquiry for Bids"}
+                          {bookingMode === "quick" ? "Book inspection" : "Publish enquiry for bids"}
                         </span>
                       </>
                     )}
