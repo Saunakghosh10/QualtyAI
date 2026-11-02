@@ -18,7 +18,7 @@
 
   --text-main: #0F172A;        /* Slate 900 — Maximum readability */
   --text-secondary: #334155;   /* Slate 700 */
-  --text-muted: #64748B;       /* Slate 500 */
+  --text-muted: #5B6B80;       /* darker than Slate 500: 4.5:1 on Slate 100 (WCAG AA) */
   --text-faint: #94A3B8;       /* Slate 400 */
 
   --border-main: #E2E8F0;      /* Slate 200 — Soft, clean hairline */
@@ -29,13 +29,19 @@
   /* Brand Blue Accent */
   --accent-primary: #1D4ED8;   /* Royal Ultramarine Blue */
   --accent-primary-hover: #1E40AF;
+  /* Fills that carry white text. Kept separate so dark mode can use a lighter blue for text. */
+  --accent-fill: #1D4ED8;
+  --accent-fill-hover: #1E40AF;
+  --success-fill: #047857;
+  --warning-fill: #B45309;     /* white text 5.0:1 */
+  --danger-fill: #B91C1C;      /* white text 6.5:1 */
   --accent-light: #EFF6FF;     /* Blue 50 */
   --accent-border: #BFDBFE;    /* Blue 200 */
   --accent-text: #1E40AF;      /* Blue 800 */
   --accent-glow: rgba(29, 78, 216, 0.12);
 
   /* Status Colors */
-  --success: #059669;
+  --success: #047857;          /* Emerald 700: 5.5:1 with white text */
   --success-bg: #ECFDF5;
   --success-border: #A7F3D0;
   --success-text: #065F46;
@@ -82,8 +88,13 @@
   --border-focus: #60A5FA;
 
   /* Brand Blue Accent */
-  --accent-primary: #3B82F6;   /* Bright Cobalt Blue */
-  --accent-primary-hover: #60A5FA;
+  --accent-primary: #60A5FA;   /* text/icons on dark: 5.5:1 or better */
+  --accent-primary-hover: #93C5FD;
+  --accent-fill: #2563EB;      /* white text 5.2:1 */
+  --accent-fill-hover: #1D4ED8;
+  --success-fill: #047857;
+  --warning-fill: #B45309;     /* white text 5.0:1 */
+  --danger-fill: #B91C1C;      /* white text 6.5:1 */
   --accent-light: rgba(59, 130, 246, 0.14);
   --accent-border: rgba(59, 130, 246, 0.32);
   --accent-text: #93C5FD;
@@ -142,7 +153,7 @@ body {
 }
 
 ::selection {
-  background: var(--accent-primary);
+  background: var(--accent-fill);
   color: #FFFFFF;
 }
 
@@ -206,7 +217,7 @@ button {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  background-color: var(--accent-primary);
+  background-color: var(--accent-fill);
   color: #FFFFFF;
   font-size: 14px;
   font-weight: 500;
@@ -217,7 +228,7 @@ button {
 }
 
 .btn-primary:hover {
-  background-color: var(--accent-primary-hover);
+  background-color: var(--accent-fill-hover);
   transform: translateY(-1px);
   box-shadow: 0 4px 12px 0 var(--accent-glow);
 }

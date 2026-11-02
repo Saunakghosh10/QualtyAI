@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, { createContext, useContext, useSyncExternalStore } from "react";
 
 type Theme = "light" | "dark";
 
@@ -16,50 +16,38 @@ const ThemeContext = createContext<ThemeContextType>({
   setTheme: () => {},
 });
 
+const EVENT = "qualty:theme";
+
+function applyTheme(t: Theme) {
+  document.documentElement.setAttribute("data-theme", t);
+  document.documentElement.classList.toggle("dark", t === "dark");
+}
+
+// The inline script in layout.tsx sets data-theme before hydration, so the
+// <html> attribute is the source of truth on the client.
+function subscribe(cb: () => void) {
+  window.addEventListener(EVENT, cb);
+  return () => window.removeEventListener(EVENT, cb);
+}
+const getTheme = (): Theme => (document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light");
+const getServerTheme = (): Theme => "light";
+
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setThemeState] = useState<Theme>("light");
-
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem("qualty_theme") as Theme | null;
-      const initial = saved === "dark" ? "dark" : "light";
-      setThemeState(initial);
-      applyTheme(initial);
-    } catch {
-      applyTheme("light");
-    }
-  }, []);
-
-  const applyTheme = (t: Theme) => {
-    document.documentElement.setAttribute("data-theme", t);
-    if (t === "dark") {
-      document.documentElement.classList.add("dark");
-    } else {
-      document.documentElement.classList.remove("dark");
-    }
-  };
+  const theme = useSyncExternalStore(subscribe, getTheme, getServerTheme);
 
   const setTheme = (t: Theme) => {
-    setThemeState(t);
     applyTheme(t);
     try {
       localStorage.setItem("qualty_theme", t);
     } catch {}
+    window.dispatchEvent(new Event(EVENT));
   };
 
-  const toggleTheme = () => {
-    const next = theme === "light" ? "dark" : "light";
-    setTheme(next);
-  };
+  const toggleTheme = () => setTheme(theme === "light" ? "dark" : "light");
 
-  return (
-    <ThemeContext.Provider value={{ theme, toggleTheme, setTheme }}>
-      {children}
-    </ThemeContext.Provider>
-  );
+  return <ThemeContext.Provider value={{ theme, toggleTheme, setTheme }}>{children}</ThemeContext.Provider>;
 }
 
 export function useTheme() {
   return useContext(ThemeContext);
 }
-

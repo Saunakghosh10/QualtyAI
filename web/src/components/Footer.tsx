@@ -88,7 +88,7 @@ export default function Footer() {
                 width: "24px",
                 height: "24px",
                 borderRadius: "6px",
-                backgroundColor: "var(--accent-primary)",
+                backgroundColor: "var(--accent-fill)",
                 color: "#FFFFFF",
                 display: "flex",
                 alignItems: "center",

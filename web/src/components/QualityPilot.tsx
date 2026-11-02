@@ -139,7 +139,7 @@ Certified by Qualty.AI Mobile Field Co-Pilot`;
                     borderRadius: "6px",
                     fontSize: "12px",
                     fontWeight: 600,
-                    backgroundColor: weatherCondition === "clear" ? "var(--accent-primary)" : "var(--bg-subtle)",
+                    backgroundColor: weatherCondition === "clear" ? "var(--accent-fill)" : "var(--bg-subtle)",
                     color: weatherCondition === "clear" ? "#FFFFFF" : "var(--text-secondary)",
                     border: "1px solid var(--border-main)",
                     cursor: "pointer",
@@ -155,7 +155,7 @@ Certified by Qualty.AI Mobile Field Co-Pilot`;
                     borderRadius: "6px",
                     fontSize: "12px",
                     fontWeight: 600,
-                    backgroundColor: weatherCondition === "overcast" ? "var(--accent-primary)" : "var(--bg-subtle)",
+                    backgroundColor: weatherCondition === "overcast" ? "var(--accent-fill)" : "var(--bg-subtle)",
                     color: weatherCondition === "overcast" ? "#FFFFFF" : "var(--text-secondary)",
                     border: "1px solid var(--border-main)",
                     cursor: "pointer",
@@ -171,7 +171,7 @@ Certified by Qualty.AI Mobile Field Co-Pilot`;
                     borderRadius: "6px",
                     fontSize: "12px",
                     fontWeight: 600,
-                    backgroundColor: weatherCondition === "rain" ? "var(--danger)" : "var(--bg-subtle)",
+                    backgroundColor: weatherCondition === "rain" ? "var(--danger-fill)" : "var(--bg-subtle)",
                     color: weatherCondition === "rain" ? "#FFFFFF" : "var(--danger-text)",
                     border: "1px solid var(--border-main)",
                     cursor: "pointer",
@@ -185,11 +185,12 @@ Certified by Qualty.AI Mobile Field Co-Pilot`;
             {/* Humidity & Temp */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
               <div>
-                <label style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-secondary)", display: "block", marginBottom: "4px" }}>
+                <label htmlFor="pilot-field-1" style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-secondary)", display: "block", marginBottom: "4px" }}>
                   Humidity: {humidity}%
                 </label>
                 <input
-                  type="range"
+                  id="pilot-field-1"
+type="range"
                   min="30"
                   max="95"
                   value={humidity}
@@ -198,11 +199,12 @@ Certified by Qualty.AI Mobile Field Co-Pilot`;
               </div>
 
               <div>
-                <label style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-secondary)", display: "block", marginBottom: "4px" }}>
+                <label htmlFor="pilot-field-2" style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-secondary)", display: "block", marginBottom: "4px" }}>
                   Ambient Temp: {temperature}°C
                 </label>
                 <input
-                  type="range"
+                  id="pilot-field-2"
+type="range"
                   min="15"
                   max="48"
                   value={temperature}
@@ -225,7 +227,7 @@ Certified by Qualty.AI Mobile Field Co-Pilot`;
                     borderRadius: "6px",
                     fontSize: "11.5px",
                     fontWeight: 600,
-                    backgroundColor: odorStatus === "normal" ? "var(--success)" : "var(--bg-subtle)",
+                    backgroundColor: odorStatus === "normal" ? "var(--success-fill)" : "var(--bg-subtle)",
                     color: odorStatus === "normal" ? "#FFFFFF" : "var(--text-secondary)",
                     border: "1px solid var(--border-main)",
                     cursor: "pointer",
@@ -241,7 +243,7 @@ Certified by Qualty.AI Mobile Field Co-Pilot`;
                     borderRadius: "6px",
                     fontSize: "11.5px",
                     fontWeight: 600,
-                    backgroundColor: odorStatus === "musty" ? "var(--warning)" : "var(--bg-subtle)",
+                    backgroundColor: odorStatus === "musty" ? "var(--warning-fill)" : "var(--bg-subtle)",
                     color: odorStatus === "musty" ? "#FFFFFF" : "var(--text-secondary)",
                     border: "1px solid var(--border-main)",
                     cursor: "pointer",
@@ -257,7 +259,7 @@ Certified by Qualty.AI Mobile Field Co-Pilot`;
                     borderRadius: "6px",
                     fontSize: "11.5px",
                     fontWeight: 600,
-                    backgroundColor: odorStatus === "sour" ? "var(--danger)" : "var(--bg-subtle)",
+                    backgroundColor: odorStatus === "sour" ? "var(--danger-fill)" : "var(--bg-subtle)",
                     color: odorStatus === "sour" ? "#FFFFFF" : "var(--text-secondary)",
                     border: "1px solid var(--border-main)",
                     cursor: "pointer",
@@ -271,12 +273,13 @@ Certified by Qualty.AI Mobile Field Co-Pilot`;
             {/* Hold Cleanliness & Torn Bags */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
               <div>
-                <label style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-secondary)", display: "block", marginBottom: "4px" }}>
+                <label htmlFor="pilot-field-3" style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-secondary)", display: "block", marginBottom: "4px" }}>
                   Hold Cleanliness
                 </label>
                 <select
-                  value={holdCleanliness}
-                  onChange={(e) => setHoldCleanliness(e.target.value as any)}
+                  id="pilot-field-3"
+value={holdCleanliness}
+                  onChange={(e) => setHoldCleanliness(e.target.value as "pass" | "re-sweep" | "reject")}
                   style={{
                     width: "100%",
                     padding: "8px 10px",
@@ -294,11 +297,12 @@ Certified by Qualty.AI Mobile Field Co-Pilot`;
               </div>
 
               <div>
-                <label style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-secondary)", display: "block", marginBottom: "4px" }}>
+                <label htmlFor="pilot-field-4" style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-secondary)", display: "block", marginBottom: "4px" }}>
                   Torn Bags Count
                 </label>
                 <input
-                  type="number"
+                  id="pilot-field-4"
+type="number"
                   min="0"
                   value={damagedBags}
                   onChange={(e) => setDamagedBags(parseInt(e.target.value) || 0)}

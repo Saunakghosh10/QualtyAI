@@ -195,7 +195,7 @@ export default function QualityEvidenceVault() {
                 borderRadius: "9999px",
                 fontSize: "12px",
                 fontWeight: 600,
-                backgroundColor: selectedCategory === cat ? "var(--accent-primary)" : "var(--bg-subtle)",
+                backgroundColor: selectedCategory === cat ? "var(--accent-fill)" : "var(--bg-subtle)",
                 color: selectedCategory === cat ? "#FFFFFF" : "var(--text-secondary)",
                 border: "1px solid var(--border-main)",
                 cursor: "pointer",

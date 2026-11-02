@@ -1,0 +1,39 @@
+name: Post-deploy smoke test
+
+# Vercel deploys master to production on its own. When GitHub hears that a
+# production deployment succeeded, this checks the live site still works.
+on:
+  deployment_status:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: Site to check
+        default: https://qualty.ai
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.deployment_status.state == 'success' &&
+       github.event.deployment.environment == 'Production')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Smoke test the live site
+        env:
+          BASE_URL: ${{ github.event.inputs.url || 'https://qualty.ai' }}
+        run: npm run test:e2e
