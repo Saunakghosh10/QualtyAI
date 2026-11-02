@@ -13,7 +13,7 @@ export async function bookFromCalibrator(
   await expect(dialog).toBeVisible();
   if (opts.mode === "inquiry") await dialog.getByRole("button", { name: /Raise an Inquiry/ }).click();
   await dialog.getByRole("button", { name: "Next: Schedule & Budget" }).click();
-  await dialog.getByRole("button", { name: "Next: Trader Profile & KYC" }).click();
+  await dialog.getByRole("button", { name: "Next: Your details" }).click();
   await dialog.getByLabel("Buyer", { exact: true }).fill(opts.buyer ?? "Al-Khaleej Foods");
   await dialog.getByLabel("Seller", { exact: true }).fill(opts.seller ?? "Punjab Rice Mills");
   if (opts.buyerGstin) await dialog.getByLabel("Buyer GSTIN (optional)").fill(opts.buyerGstin);

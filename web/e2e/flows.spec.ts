@@ -34,7 +34,7 @@ test("rejects an IEC that does not match the buyer's GSTIN", async ({ page }) =>
   await page.getByRole("button", { name: "Book Inspection with These Specs" }).click();
   const dialog = bookingDialog(page);
   await dialog.getByRole("button", { name: "Next: Schedule & Budget" }).click();
-  await dialog.getByRole("button", { name: "Next: Trader Profile & KYC" }).click();
+  await dialog.getByRole("button", { name: "Next: Your details" }).click();
   await dialog.getByLabel("Buyer", { exact: true }).fill("B");
   await dialog.getByLabel("Seller", { exact: true }).fill("S");
   await dialog.getByLabel("Buyer GSTIN (optional)").fill("27AAPFU0939F1ZV");

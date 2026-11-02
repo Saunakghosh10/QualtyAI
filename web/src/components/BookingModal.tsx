@@ -55,7 +55,6 @@ export default function BookingModal({
     contactName: "Saunak Ghosh",
     email: "ops@cargofirst.com",
     phone: "+91 98765 43210",
-    kycSandboxStatus: "BASIC_VERIFIED",
     notes: "",
   });
 
@@ -712,14 +711,14 @@ rows={2}
                   </button>
 
                   <button onClick={() => setStep(3)} className="btn-primary" style={{ padding: "10px 20px" }}>
-                    <span>Next: Trader Profile & KYC</span>
+                    <span>Next: Your details</span>
                     <ArrowRight size={14} weight="bold" />
                   </button>
                 </div>
               </div>
             )}
 
-            {/* Step 3: Trader Profile & Sandbox KYC */}
+            {/* Step 3: Your details and buyer/seller verification */}
             {step === 3 && (
               <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
                 {/* Buyer / Seller Verification */}

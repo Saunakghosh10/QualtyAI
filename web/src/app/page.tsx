@@ -12,15 +12,12 @@ import SurveyorNetwork from "@/components/SurveyorNetwork";
 import OrderRooms from "@/components/OrderRooms";
 import Footer from "@/components/Footer";
 import BookingModal from "@/components/BookingModal";
-import AuthModal from "@/components/AuthModal";
 
 export default function Home() {
   const [isBookingOpen, setIsBookingOpen] = useState<boolean>(false);
-  const [isAuthOpen, setIsAuthOpen] = useState<boolean>(false);
   const [injectedParams, setInjectedParams] = useState<CommodityParams | null>(null);
   const [contractInfo, setContractInfo] = useState<{ filename: string; specName: string } | null>(null);
   const [selectedServiceType, setSelectedServiceType] = useState<string>("Pre-Shipment Inspection (PSI)");
-  const [currentUser, setCurrentUser] = useState<{ name: string; role: string; kycStatus: string } | null>(null);
 
   const handleOpenQuickBooking = () => {
     setSelectedServiceType("Pre-Shipment Inspection (PSI)");
@@ -46,18 +43,10 @@ export default function Home() {
     setIsBookingOpen(true);
   };
 
-  const handleLoginSuccess = (user: { name: string; role: "receiver" | "provider"; kycStatus: string }) => {
-    setCurrentUser(user);
-  };
-
   return (
     <main id="top" style={{ minHeight: "100vh", backgroundColor: "var(--bg-page)", color: "var(--text-main)" }}>
-      {/* Navbar with Role/Auth & Theme Toggle */}
-      <Navbar
-        onOpenBooking={handleOpenQuickBooking}
-        onOpenAuth={() => setIsAuthOpen(true)}
-        currentUser={currentUser}
-      />
+      {/* Navbar with theme toggle */}
+      <Navbar onOpenBooking={handleOpenQuickBooking} />
 
       {/* Hero Section with Dual CTAs: Quick (<5 days) vs Inquiry (>5 days) */}
       <Hero
@@ -96,13 +85,6 @@ export default function Home() {
         injectedParams={injectedParams}
         contractInfo={contractInfo}
         initialServiceType={selectedServiceType}
-      />
-
-      {/* Role-Based Authentication & Sandbox KYC Modal */}
-      <AuthModal
-        isOpen={isAuthOpen}
-        onClose={() => setIsAuthOpen(false)}
-        onLoginSuccess={handleLoginSuccess}
       />
     </main>
   );

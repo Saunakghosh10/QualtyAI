@@ -1,18 +1,16 @@
 "use client";
 
 import React, { useState, useEffect, useSyncExternalStore } from "react";
-import { Sun, Moon, ArrowRight, Clock, User, ShieldCheck } from "@phosphor-icons/react";
+import { Sun, Moon, ArrowRight, Clock } from "@phosphor-icons/react";
 import { useTheme } from "@/context/ThemeContext";
 
 interface NavbarProps {
   onOpenBooking: () => void;
-  onOpenAuth: () => void;
-  currentUser?: { name: string; role: string } | null;
 }
 
 const noopSubscribe = () => () => {};
 
-export default function Navbar({ onOpenBooking, onOpenAuth, currentUser }: NavbarProps) {
+export default function Navbar({ onOpenBooking }: NavbarProps) {
   const { theme, toggleTheme } = useTheme();
   const [utcTime, setUtcTime] = useState<string>("");
   // true only after hydration, so the theme button never mismatches the server HTML
@@ -190,42 +188,6 @@ export default function Navbar({ onOpenBooking, onOpenAuth, currentUser }: Navba
             </span>
           </div>
 
-          {/* User Sign In / Profile */}
-          {currentUser ? (
-            <div
-              className="badge-pill"
-              style={{
-                backgroundColor: "var(--success-bg)",
-                color: "var(--success-text)",
-                border: "1px solid var(--success-border)",
-                fontSize: "12px",
-              }}
-            >
-              <ShieldCheck size={14} weight="bold" />
-              <span>{currentUser.name}</span>
-            </div>
-          ) : (
-            <button
-              onClick={onOpenAuth}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "5px",
-                fontSize: "13px",
-                fontWeight: 600,
-                color: "var(--text-secondary)",
-                padding: "6px 12px",
-                borderRadius: "8px",
-                cursor: "pointer",
-                transition: "color 0.15s",
-              }}
-              onMouseEnter={(e) => (e.currentTarget.style.color = "var(--accent-primary)")}
-              onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text-secondary)")}
-            >
-              <User size={15} />
-              <span>Sign In / KYC</span>
-            </button>
-          )}
 
           {/* Theme Toggle Button */}
           {mounted && (
