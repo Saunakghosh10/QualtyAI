@@ -1,6 +1,8 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
+import { useDB, saveSpec, deleteSpec, specLabel } from "@/lib/store";
+import { marketFit } from "@/lib/markets";
 import {
   Sliders,
   CheckCircle,
@@ -154,20 +156,13 @@ export default function CommodityCalibrator({ onInjectIntoBooking }: CommodityCa
   const [params, setParams] = useState<CommodityParams>(COMMODITY_PRESETS.basmati1121.params);
 
   // Quality Checker: Saved Buyer Specs
-  const [savedSpecs, setSavedSpecs] = useState<Array<{ id: string; name: string; params: CommodityParams }>>([
-    {
-      id: "spec-1",
-      name: "Dubai Jebel Ali — Grade A Basmati Spec",
-      params: { ...COMMODITY_PRESETS.basmati1121.params },
-    },
-    {
-      id: "spec-2",
-      name: "Rotterdam Port — Non-GMO Soybean Standard",
-      params: { ...COMMODITY_PRESETS.soybeansNonGMO.params },
-    },
-  ]);
+  // Saved buyer specs persist in the browser store and show up in the booking form.
+  const savedSpecs = useDB().specs;
   const [newSpecName, setNewSpecName] = useState("");
+  const [newSpecRef, setNewSpecRef] = useState("");
+  const [loadedSpecId, setLoadedSpecId] = useState("");
   const [isSavingSpec, setIsSavingSpec] = useState(false);
+  const fits = useMemo(() => marketFit(params), [params]);
 
   // Contract Upload State
   const [uploadedContract, setUploadedContract] = useState<{ filename: string; uploadedAt: string } | null>(null);
@@ -186,17 +181,15 @@ export default function CommodityCalibrator({ onInjectIntoBooking }: CommodityCa
   const handleSaveSpec = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newSpecName.trim()) return;
-    const newEntry = {
-      id: `spec-${Date.now()}`,
-      name: newSpecName.trim(),
-      params: { ...params },
-    };
-    setSavedSpecs((prev) => [newEntry, ...prev]);
+    const saved = saveSpec({ buyerName: newSpecName.trim(), reference: newSpecRef.trim(), params: { ...params } });
+    setLoadedSpecId(saved.id);
     setNewSpecName("");
+    setNewSpecRef("");
     setIsSavingSpec(false);
   };
 
   const handleLoadSavedSpec = (specId: string) => {
+    setLoadedSpecId(specId);
     const found = savedSpecs.find((s) => s.id === specId);
     if (found) {
       setParams({ ...found.params });
@@ -368,7 +361,9 @@ export default function CommodityCalibrator({ onInjectIntoBooking }: CommodityCa
           </div>
 
           <select
-            onChange={(e) => e.target.value && handleLoadSavedSpec(e.target.value)}
+            value={loadedSpecId}
+            aria-label="Saved buyer spec"
+            onChange={(e) => (e.target.value ? handleLoadSavedSpec(e.target.value) : setLoadedSpecId(""))}
             style={{
               padding: "6px 12px",
               borderRadius: "8px",
@@ -379,13 +374,27 @@ export default function CommodityCalibrator({ onInjectIntoBooking }: CommodityCa
               minWidth: "220px",
             }}
           >
-            <option value="">Select Saved Buyer Spec...</option>
+            <option value="">{savedSpecs.length ? "Load a saved buyer spec" : "No saved specs yet"}</option>
             {savedSpecs.map((spec) => (
               <option key={spec.id} value={spec.id}>
-                {spec.name}
+                {specLabel(spec)} ({spec.params.commodity})
               </option>
             ))}
           </select>
+
+          {loadedSpecId && (
+            <button
+              type="button"
+              onClick={() => {
+                deleteSpec(loadedSpecId);
+                setLoadedSpecId("");
+              }}
+              aria-label="Delete this saved spec"
+              style={{ display: "inline-flex", alignItems: "center", gap: "4px", fontSize: "12px", color: "var(--danger)", cursor: "pointer", minHeight: "32px" }}
+            >
+              <Trash size={14} /> Delete
+            </button>
+          )}
 
           <button
             onClick={() => setIsSavingSpec(!isSavingSpec)}
@@ -443,7 +452,8 @@ export default function CommodityCalibrator({ onInjectIntoBooking }: CommodityCa
           <input
             type="text"
             required
-            placeholder="Enter Buyer Profile Name (e.g. Al-Khaleej Dubai Spec 2026)"
+            aria-label="Buyer name"
+            placeholder="Buyer name (e.g. Al-Khaleej Foods)"
             value={newSpecName}
             onChange={(e) => setNewSpecName(e.target.value)}
             style={{
@@ -456,8 +466,24 @@ export default function CommodityCalibrator({ onInjectIntoBooking }: CommodityCa
               color: "var(--text-main)",
             }}
           />
+          <input
+            type="text"
+            aria-label="Reference name"
+            placeholder="Reference (e.g. PO-2611, Dubai Grade A)"
+            value={newSpecRef}
+            onChange={(e) => setNewSpecRef(e.target.value)}
+            style={{
+              flex: 1,
+              padding: "8px 12px",
+              borderRadius: "6px",
+              border: "1px solid var(--border-main)",
+              fontSize: "13px",
+              backgroundColor: "var(--bg-subtle)",
+              color: "var(--text-main)",
+            }}
+          />
           <button type="submit" className="btn-primary" style={{ padding: "8px 16px", fontSize: "12.5px" }}>
-            Save Profile
+            Save spec
           </button>
         </form>
       )}
@@ -751,6 +777,35 @@ export default function CommodityCalibrator({ onInjectIntoBooking }: CommodityCa
                 </div>
               </div>
             </div>
+          </div>
+
+          {/* Market fit: which destination markets accept this quality */}
+          <div className="card-shell" style={{ padding: "22px 24px" }}>
+            <h4 style={{ fontSize: "14px", fontWeight: 600, color: "var(--text-main)", marginBottom: "4px" }}>
+              Markets this quality suits
+            </h4>
+            <p style={{ fontSize: "12px", color: "var(--text-muted)", marginBottom: "14px", textWrap: "pretty" }}>
+              Change any parameter and the list updates. Limits are indicative until the confirmed market standards are loaded.
+            </p>
+            <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: "8px" }}>
+              {fits.map((f) => (
+                <li key={f.market} style={{ display: "flex", gap: "10px", alignItems: "flex-start", fontSize: "13px" }}>
+                  {f.fits ? (
+                    <CheckCircle size={18} weight="fill" color="var(--success)" style={{ flexShrink: 0 }} aria-label="Fits" />
+                  ) : (
+                    <XCircle size={18} weight="fill" color="var(--danger)" style={{ flexShrink: 0 }} aria-label="Does not fit" />
+                  )}
+                  <div>
+                    <div style={{ fontWeight: 600, color: "var(--text-main)" }}>{f.market}</div>
+                    {!f.fits && (
+                      <div className="font-mono" style={{ fontSize: "11.5px", color: "var(--text-muted)" }}>
+                        {f.failing.join(", ")}
+                      </div>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
           </div>
 
           {/* Quick Specifications Breakdown */}

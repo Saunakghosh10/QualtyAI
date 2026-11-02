@@ -12,6 +12,7 @@ import {
   FileText,
   Lock,
 } from "@phosphor-icons/react";
+import VaultRecords from "./VaultRecords";
 
 interface EvidenceItem {
   id: string;
@@ -141,6 +142,13 @@ export default function QualityEvidenceVault() {
           Immutable on-dock photographic evidence watermarked with GPS coordinates, ISO timestamps, and surveyor digital IDs for bulletproof dispute defense.
         </p>
       </div>
+
+      {/* Real evidence from order chatrooms */}
+      <VaultRecords />
+
+      <h3 className="font-heading" style={{ fontSize: "15px", fontWeight: 600, color: "var(--text-secondary)", marginBottom: "12px" }}>
+        Example records
+      </h3>
 
       {/* Search & Filter Toolbar */}
       <div
