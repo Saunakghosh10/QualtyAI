@@ -1,13 +1,14 @@
 "use client";
 
 import React from "react";
-import { ArrowRight, Sliders, ShieldCheck, MapPin, CheckCircle } from "@phosphor-icons/react";
+import { ArrowRight, Sliders, ShieldCheck, MapPin, CheckCircle, Lightning, Gavel } from "@phosphor-icons/react";
 
 interface HeroProps {
-  onOpenEnquiry: () => void;
+  onOpenQuickBooking: () => void;
+  onOpenInquiryBooking: () => void;
 }
 
-export default function Hero({ onOpenEnquiry }: HeroProps) {
+export default function Hero({ onOpenQuickBooking, onOpenInquiryBooking }: HeroProps) {
   return (
     <section
       style={{
@@ -36,7 +37,7 @@ export default function Hero({ onOpenEnquiry }: HeroProps) {
         }}
       />
 
-      <div style={{ position: "relative", zIndex: 1, maxWidth: "860px" }}>
+      <div style={{ position: "relative", zIndex: 1, maxWidth: "880px" }}>
         {/* Eyebrow Status Badge */}
         <div
           className="badge-pill"
@@ -51,7 +52,7 @@ export default function Hero({ onOpenEnquiry }: HeroProps) {
         >
           <span className="status-indicator status-active" />
           <span style={{ fontSize: "12px", fontWeight: 600 }}>
-            GLOBAL CARGO QUALITY & SURVEYOR NETWORK
+            PHYSICAL CARGO INSPECTION & SURVEYOR DISPATCH PLATFORM
           </span>
         </div>
 
@@ -68,7 +69,7 @@ export default function Hero({ onOpenEnquiry }: HeroProps) {
             textWrap: "balance",
           }}
         >
-          Verified cargo quality for international commodity trade.
+          Verified physical cargo quality for global commodity trade.
         </h1>
 
         {/* Readable Subtitle */}
@@ -77,14 +78,14 @@ export default function Hero({ onOpenEnquiry }: HeroProps) {
             fontSize: "clamp(16px, 1.8vw, 19px)",
             lineHeight: 1.6,
             color: "var(--text-secondary)",
-            maxWidth: "680px",
+            maxWidth: "700px",
             margin: "0 auto 36px",
           }}
         >
-          Instant grain specification calibration, accredited on-dock surveyor dispatch, and dual physical-chemical verification across major global trade corridors.
+          Book accredited marine surveyors on-demand. Fast on-dock sampling, pre-shipment cargo grading, container stuffing surveys, and GPS-watermarked evidence vaults across major ports.
         </p>
 
-        {/* Action Buttons */}
+        {/* Dual Booking Action Buttons */}
         <div
           style={{
             display: "flex",
@@ -95,18 +96,32 @@ export default function Hero({ onOpenEnquiry }: HeroProps) {
             marginBottom: "56px",
           }}
         >
-          <button onClick={onOpenEnquiry} className="btn-primary" style={{ padding: "12px 24px", fontSize: "15px" }}>
-            <span>Book Cargo Inspection</span>
-            <ArrowRight size={16} weight="bold" />
+          <button
+            onClick={onOpenQuickBooking}
+            className="btn-primary"
+            style={{ padding: "12px 24px", fontSize: "14.5px" }}
+          >
+            <Lightning size={17} weight="fill" />
+            <span>Quick Inspection (&lt; 5 Days)</span>
+            <ArrowRight size={15} weight="bold" />
           </button>
 
-          <a href="#simulator" className="btn-secondary" style={{ padding: "12px 22px", fontSize: "15px" }}>
+          <button
+            onClick={onOpenInquiryBooking}
+            className="btn-secondary"
+            style={{ padding: "12px 22px", fontSize: "14.5px" }}
+          >
+            <Gavel size={17} weight="bold" />
+            <span>Raise an Inquiry (&gt; 5 Days Bidding)</span>
+          </button>
+
+          <a href="#calibrator" className="btn-secondary" style={{ padding: "12px 20px", fontSize: "14.5px" }}>
             <Sliders size={16} />
-            <span>Try Grain Calibrator</span>
+            <span>Commodity Calibrator</span>
           </a>
         </div>
 
-        {/* High-Impact Stat Cards */}
+        {/* Stat Cards */}
         <div
           style={{
             display: "grid",
@@ -134,7 +149,7 @@ export default function Hero({ onOpenEnquiry }: HeroProps) {
                 <ShieldCheck size={18} weight="bold" />
               </div>
               <span style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-muted)" }}>
-                DISPATCH TIME
+                RAPID DISPATCH
               </span>
             </div>
             <div
@@ -144,7 +159,7 @@ export default function Hero({ onOpenEnquiry }: HeroProps) {
               &lt; 2 Hours
             </div>
             <div style={{ fontSize: "13px", color: "var(--text-secondary)", marginTop: "4px" }}>
-              Rapid on-dock surveyor mobilization at key export terminals
+              Local surveyor mobilization at Mundra, Kakinada, JNPT, and Kandla
             </div>
           </div>
 
@@ -166,17 +181,17 @@ export default function Hero({ onOpenEnquiry }: HeroProps) {
                 <CheckCircle size={18} weight="bold" />
               </div>
               <span style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-muted)" }}>
-                ACCREDITATION
+                QUALITY VAULT
               </span>
             </div>
             <div
               className="font-heading"
               style={{ fontSize: "28px", fontWeight: 700, color: "var(--text-main)", lineHeight: 1.1 }}
             >
-              GAFTA & NABL
+              Watermarked GPS
             </div>
             <div style={{ fontSize: "13px", color: "var(--text-secondary)", marginTop: "4px" }}>
-              ISO/IEC 17025 accredited laboratory assays and certificates
+              Timestamped digital evidence protecting against 30-90 day transit claims
             </div>
           </div>
 
@@ -198,7 +213,7 @@ export default function Hero({ onOpenEnquiry }: HeroProps) {
                 <MapPin size={18} weight="bold" />
               </div>
               <span style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-muted)" }}>
-                COVERAGE
+                PORT DIRECTORY
               </span>
             </div>
             <div
@@ -208,7 +223,7 @@ export default function Hero({ onOpenEnquiry }: HeroProps) {
               12+ Global Hubs
             </div>
             <div style={{ fontSize: "13px", color: "var(--text-secondary)", marginTop: "4px" }}>
-              From Mundra and Kakinada to Dubai, Rotterdam & Singapore
+              Accredited surveyors active in domestic Indian ports and overseas corridors
             </div>
           </div>
         </div>

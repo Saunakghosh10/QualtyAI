@@ -1,14 +1,16 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Sun, Moon, ArrowRight, ShieldCheck, Clock } from "@phosphor-icons/react";
+import { Sun, Moon, ArrowRight, Clock, User, ShieldCheck } from "@phosphor-icons/react";
 import { useTheme } from "@/context/ThemeContext";
 
 interface NavbarProps {
-  onOpenEnquiry: () => void;
+  onOpenBooking: () => void;
+  onOpenAuth: () => void;
+  currentUser?: { name: string; role: string } | null;
 }
 
-export default function Navbar({ onOpenEnquiry }: NavbarProps) {
+export default function Navbar({ onOpenBooking, onOpenAuth, currentUser }: NavbarProps) {
   const { theme, toggleTheme } = useTheme();
   const [utcTime, setUtcTime] = useState<string>("");
   const [mounted, setMounted] = useState<boolean>(false);
@@ -17,9 +19,7 @@ export default function Navbar({ onOpenEnquiry }: NavbarProps) {
     setMounted(true);
     const updateTime = () => {
       const now = new Date();
-      setUtcTime(
-        now.toISOString().substring(11, 19) + " UTC"
-      );
+      setUtcTime(now.toISOString().substring(11, 19) + " UTC");
     };
     updateTime();
     const interval = setInterval(updateTime, 1000);
@@ -42,7 +42,7 @@ export default function Navbar({ onOpenEnquiry }: NavbarProps) {
         style={{
           maxWidth: "1280px",
           margin: "0 auto",
-          padding: "14px 20px",
+          padding: "12px 20px",
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
@@ -110,7 +110,7 @@ export default function Navbar({ onOpenEnquiry }: NavbarProps) {
                 fontWeight: 500,
               }}
             >
-              Cargo Quality & Verification
+              Physical Cargo Inspection
             </div>
           </div>
         </a>
@@ -120,7 +120,7 @@ export default function Navbar({ onOpenEnquiry }: NavbarProps) {
           style={{
             display: "none",
             alignItems: "center",
-            gap: "24px",
+            gap: "22px",
             fontSize: "13.5px",
             fontWeight: 500,
             color: "var(--text-secondary)",
@@ -128,28 +128,36 @@ export default function Navbar({ onOpenEnquiry }: NavbarProps) {
           className="desktop-nav"
         >
           <a
-            href="#standards"
+            href="#services"
             style={{ transition: "color 0.15s" }}
             onMouseEnter={(e) => (e.currentTarget.style.color = "var(--accent-primary)")}
             onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text-secondary)")}
           >
-            Standards
+            Services
           </a>
           <a
-            href="#simulator"
+            href="#calibrator"
             style={{ transition: "color 0.15s" }}
             onMouseEnter={(e) => (e.currentTarget.style.color = "var(--accent-primary)")}
             onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text-secondary)")}
           >
-            Grain Calibrator
+            Commodity Calibrator
           </a>
           <a
-            href="#pipeline"
+            href="#vault"
             style={{ transition: "color 0.15s" }}
             onMouseEnter={(e) => (e.currentTarget.style.color = "var(--accent-primary)")}
             onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text-secondary)")}
           >
-            Dual Testing
+            Evidence Vault
+          </a>
+          <a
+            href="#pilot"
+            style={{ transition: "color 0.15s" }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = "var(--accent-primary)")}
+            onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text-secondary)")}
+          >
+            Quality Pilot
           </a>
           <a
             href="#surveyors"
@@ -157,21 +165,13 @@ export default function Navbar({ onOpenEnquiry }: NavbarProps) {
             onMouseEnter={(e) => (e.currentTarget.style.color = "var(--accent-primary)")}
             onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text-secondary)")}
           >
-            Surveyor Network
-          </a>
-          <a
-            href="#api"
-            style={{ transition: "color 0.15s" }}
-            onMouseEnter={(e) => (e.currentTarget.style.color = "var(--accent-primary)")}
-            onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text-secondary)")}
-          >
-            Developer API
+            Surveyor Hubs
           </a>
         </nav>
 
-        {/* Right Section: Time + Theme Toggle + CTA */}
-        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-          {/* UTC Clock pill */}
+        {/* Right Section: Time + Auth + Theme Toggle + CTA */}
+        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+          {/* UTC Clock */}
           <div
             className="badge-pill"
             style={{
@@ -188,6 +188,43 @@ export default function Navbar({ onOpenEnquiry }: NavbarProps) {
             </span>
           </div>
 
+          {/* User Sign In / Profile */}
+          {currentUser ? (
+            <div
+              className="badge-pill"
+              style={{
+                backgroundColor: "var(--success-bg)",
+                color: "var(--success-text)",
+                border: "1px solid var(--success-border)",
+                fontSize: "12px",
+              }}
+            >
+              <ShieldCheck size={14} weight="bold" />
+              <span>{currentUser.name}</span>
+            </div>
+          ) : (
+            <button
+              onClick={onOpenAuth}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "5px",
+                fontSize: "13px",
+                fontWeight: 600,
+                color: "var(--text-secondary)",
+                padding: "6px 12px",
+                borderRadius: "8px",
+                cursor: "pointer",
+                transition: "color 0.15s",
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.color = "var(--accent-primary)")}
+              onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text-secondary)")}
+            >
+              <User size={15} />
+              <span>Sign In / KYC</span>
+            </button>
+          )}
+
           {/* Theme Toggle Button */}
           {mounted && (
             <button
@@ -195,8 +232,8 @@ export default function Navbar({ onOpenEnquiry }: NavbarProps) {
               aria-label={`Switch to ${theme === "light" ? "dark" : "light"} mode`}
               title={`Switch to ${theme === "light" ? "dark" : "light"} mode`}
               style={{
-                width: "36px",
-                height: "36px",
+                width: "34px",
+                height: "34px",
                 borderRadius: "50%",
                 display: "flex",
                 alignItems: "center",
@@ -206,21 +243,13 @@ export default function Navbar({ onOpenEnquiry }: NavbarProps) {
                 border: "1px solid var(--border-main)",
                 transition: "all 0.2s ease",
               }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.borderColor = "var(--border-strong)";
-                e.currentTarget.style.color = "var(--accent-primary)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.borderColor = "var(--border-main)";
-                e.currentTarget.style.color = "var(--text-secondary)";
-              }}
             >
-              {theme === "light" ? <Moon size={18} weight="bold" /> : <Sun size={18} weight="bold" />}
+              {theme === "light" ? <Moon size={16} weight="bold" /> : <Sun size={16} weight="bold" />}
             </button>
           )}
 
           {/* Book Inspection CTA */}
-          <button onClick={onOpenEnquiry} className="btn-primary" style={{ padding: "8px 16px", fontSize: "13px" }}>
+          <button onClick={onOpenBooking} className="btn-primary" style={{ padding: "8px 16px", fontSize: "13px" }}>
             <span>Book Inspection</span>
             <ArrowRight size={14} weight="bold" />
           </button>
@@ -228,7 +257,7 @@ export default function Navbar({ onOpenEnquiry }: NavbarProps) {
       </div>
 
       <style jsx>{`
-        @media (min-width: 840px) {
+        @media (min-width: 860px) {
           .desktop-nav {
             display: flex !important;
           }

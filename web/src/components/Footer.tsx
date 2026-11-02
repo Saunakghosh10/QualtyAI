@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { ShieldCheck } from "@phosphor-icons/react";
+import { ShieldCheck, Vault } from "@phosphor-icons/react";
 
 export default function Footer() {
   return (
@@ -26,23 +26,34 @@ export default function Footer() {
         >
           <div>
             <div style={{ fontSize: "11px", fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
-              Network Dispatch
+              Surveyor Dispatch
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "6px" }}>
               <span className="status-indicator status-active" />
               <span style={{ fontSize: "14px", fontWeight: 600, color: "var(--text-main)" }}>
-                99.98% Active Uptime
+                Active &lt; 2hr Mobilization
               </span>
             </div>
           </div>
 
           <div>
             <div style={{ fontSize: "11px", fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
-              Execution Protocol
+              Accredited Protocols
             </div>
             <div style={{ marginTop: "6px" }}>
               <span style={{ fontSize: "14px", fontWeight: 600, color: "var(--text-main)" }}>
-                GAFTA 124 / ISO 24333
+                GAFTA 124 / ISO 24333 / NABL
+              </span>
+            </div>
+          </div>
+
+          <div>
+            <div style={{ fontSize: "11px", fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+              Evidence Security
+            </div>
+            <div style={{ marginTop: "6px" }}>
+              <span className="font-mono" style={{ fontSize: "14px", fontWeight: 600, color: "var(--text-main)" }}>
+                SHA-256 GPS Watermarking
               </span>
             </div>
           </div>
@@ -54,17 +65,6 @@ export default function Footer() {
             <div style={{ marginTop: "6px" }}>
               <span className="font-mono" style={{ fontSize: "14px", fontWeight: 600, color: "var(--text-main)" }}>
                 UTC (Coordinated Universal Time)
-              </span>
-            </div>
-          </div>
-
-          <div>
-            <div style={{ fontSize: "11px", fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
-              Backend Gateway
-            </div>
-            <div style={{ marginTop: "6px" }}>
-              <span style={{ fontSize: "14px", fontWeight: 600, color: "var(--text-main)" }}>
-                PostgreSQL // REST API
               </span>
             </div>
           </div>
@@ -103,12 +103,12 @@ export default function Footer() {
             <span>— A CargoFirst Company. All rights reserved.</span>
           </div>
 
-          <div style={{ display: "flex", gap: "20px" }}>
-            <a href="#standards" style={{ color: "var(--text-secondary)" }}>Standards</a>
-            <a href="#simulator" style={{ color: "var(--text-secondary)" }}>Grain Calibrator</a>
-            <a href="#pipeline" style={{ color: "var(--text-secondary)" }}>Dual Testing</a>
+          <div style={{ display: "flex", gap: "20px", flexWrap: "wrap" }}>
+            <a href="#services" style={{ color: "var(--text-secondary)" }}>Services</a>
+            <a href="#calibrator" style={{ color: "var(--text-secondary)" }}>Calibrator</a>
+            <a href="#vault" style={{ color: "var(--text-secondary)" }}>Evidence Vault</a>
+            <a href="#pilot" style={{ color: "var(--text-secondary)" }}>Quality Pilot</a>
             <a href="#surveyors" style={{ color: "var(--text-secondary)" }}>Surveyor Hubs</a>
-            <a href="#api" style={{ color: "var(--text-secondary)" }}>API Docs</a>
           </div>
         </div>
       </div>
