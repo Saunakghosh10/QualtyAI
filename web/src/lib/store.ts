@@ -39,8 +39,25 @@ export interface Bid {
   days: number;
   scope: string;
   createdAt: string;
-  status: "open" | "accepted" | "declined";
+  status: "open" | "accepted" | "declined" | "withdrawn";
+  /** Discount the company offers on priceUSD, in percent. */
+  discountPct?: number;
+  /** Negotiation history: every counter-offer from either side, oldest first. */
+  rounds?: BidRound[];
+  /** Date the company plans to follow up with the customer (YYYY-MM-DD). */
+  followUpOn?: string;
 }
+
+export interface BidRound {
+  by: "customer" | "company";
+  priceUSD: number;
+  note: string;
+  at: string;
+}
+
+/** Price after the bid's discount. */
+export const bidNet = (b: Pick<Bid, "priceUSD" | "discountPct">) =>
+  Math.round(b.priceUSD * (1 - (b.discountPct ?? 0) / 100));
 
 export type OrderStatus = "enquiry" | "booked" | "in-progress" | "completed";
 
@@ -62,6 +79,11 @@ export interface Order {
   bids: Bid[];
   createdAt: string;
   completedAt?: string;
+  /** Agreed price (after discount), set when a quick booking or a bid is confirmed. */
+  priceUSD?: number;
+  /** Service store listing the quick booking came from. */
+  listingId?: string;
+  invoice?: Invoice;
 }
 
 export type MessageKind = "text" | "system" | "observation" | "dispatch" | "flag" | "media" | "summary";
@@ -106,10 +128,25 @@ interface DB {
   orders: Order[];
   messages: ChatMessage[];
   evidence: EvidenceRecord[];
+  companies: Company[];
+  team: TeamMember[];
+  listings: ServiceListing[];
+  certificates: Certificate[];
+  compliance: ComplianceItem[];
 }
 
 const KEY = "qualty_store_v1";
-const EMPTY: DB = { specs: [], orders: [], messages: [], evidence: [] };
+const EMPTY: DB = {
+  specs: [],
+  orders: [],
+  messages: [],
+  evidence: [],
+  companies: [],
+  team: [],
+  listings: [],
+  certificates: [],
+  compliance: [],
+};
 
 let cache: DB | null = null;
 const listeners = new Set<() => void>();
@@ -273,26 +310,623 @@ export function describeSpec(s: CommodityParams) {
   return `${s.commodity}, broken ≤ ${s.broken}%, purity ≥ ${s.purity}%, moisture ≤ ${s.moisture}%, damaged ≤ ${s.damageKernel}%, live insects ${s.liveInsects === 0 ? "nil" : `≤ ${s.liveInsects}`}`;
 }
 
-export function submitBid(orderId: string, bid: Omit<Bid, "id" | "createdAt" | "status">) {
-  const full: Bid = { ...bid, id: uid("bid"), createdAt: now(), status: "open" };
+export function submitBid(orderId: string, bid: Omit<Bid, "id" | "createdAt" | "status" | "rounds">) {
+  const full: Bid = { ...bid, id: uid("bid"), createdAt: now(), status: "open", rounds: [] };
   updateOrder(orderId, (o) => ({ ...o, bids: [...o.bids, full] }));
-  systemMessage(orderId, `${bid.company} bid $${bid.priceUSD.toLocaleString()} for ${bid.days} day(s).`);
+  const off = bid.discountPct ? ` (${bid.discountPct}% off $${bid.priceUSD.toLocaleString()})` : "";
+  systemMessage(orderId, `${bid.company} bid $${bidNet(bid).toLocaleString()}${off} for ${bid.days} day(s).`);
+  return full;
 }
 
 export function acceptBid(orderId: string, bidId: string) {
   const o = getOrder(orderId);
   const bid = o?.bids.find((b) => b.id === bidId);
-  if (!o || !bid) return;
+  if (!o || !bid || bid.status !== "open" || o.status !== "enquiry") return;
   updateOrder(orderId, (x) => ({
     ...x,
     status: "booked",
     inspectionCompany: bid.company,
+    priceUSD: bidNet(bid),
     members: x.members.some((m) => m.role === "company")
       ? x.members
       : [...x.members.slice(0, 1), { role: "company", name: bid.company }, ...x.members.slice(1)],
-    bids: x.bids.map((b) => ({ ...b, status: b.id === bidId ? "accepted" : "declined" })),
+    bids: x.bids.map((b) => ({ ...b, status: b.id === bidId ? "accepted" : b.status === "withdrawn" ? "withdrawn" : "declined" })),
   }));
-  systemMessage(orderId, `Customer accepted ${bid.company}'s bid of $${bid.priceUSD.toLocaleString()}. ${bid.company} joined the chatroom.`);
+  systemMessage(orderId, `Customer accepted ${bid.company}'s bid of $${bidNet(bid).toLocaleString()}. ${bid.company} joined the chatroom.`);
+}
+
+// ---------- Bid negotiation (enquiries) ----------
+
+function updateBid(orderId: string, bidId: string, fn: (b: Bid) => Bid) {
+  updateOrder(orderId, (o) => ({ ...o, bids: o.bids.map((b) => (b.id === bidId ? fn(b) : b)) }));
+}
+
+const openBid = (orderId: string, bidId: string) => {
+  const o = getOrder(orderId);
+  const bid = o?.bids.find((b) => b.id === bidId);
+  return o && bid && o.status === "enquiry" && bid.status === "open" ? { o, bid } : null;
+};
+
+/** A counter-offer from either side. A company counter replaces its price; a customer counter is a request. */
+export function counterBid(orderId: string, bidId: string, by: BidRound["by"], priceUSD: number, note = "") {
+  const hit = openBid(orderId, bidId);
+  if (!hit || !(priceUSD > 0)) return;
+  const round: BidRound = { by, priceUSD, note: note.trim(), at: now() };
+  updateBid(orderId, bidId, (b) => ({
+    ...b,
+    ...(by === "company" ? { priceUSD, discountPct: 0 } : {}),
+    rounds: [...(b.rounds ?? []), round],
+  }));
+  const who = by === "company" ? hit.bid.company : "The customer";
+  const ask = by === "company" ? "revised the bid to" : `asked ${hit.bid.company} for`;
+  systemMessage(orderId, `${who} ${ask} $${priceUSD.toLocaleString()}.${round.note ? ` Note: ${round.note}` : ""}`);
+}
+
+/** Company gives a discount on its open bid. */
+export function discountBid(orderId: string, bidId: string, discountPct: number) {
+  const hit = openBid(orderId, bidId);
+  if (!hit || discountPct < 0 || discountPct >= 100) return;
+  updateBid(orderId, bidId, (b) => ({ ...b, discountPct }));
+  const net = bidNet({ priceUSD: hit.bid.priceUSD, discountPct });
+  systemMessage(orderId, `${hit.bid.company} gave ${discountPct}% off: bid is now $${net.toLocaleString()}.`);
+}
+
+export function setFollowUp(orderId: string, bidId: string, date: string) {
+  if (!openBid(orderId, bidId)) return;
+  updateBid(orderId, bidId, (b) => ({ ...b, followUpOn: date || undefined }));
+}
+
+export function withdrawBid(orderId: string, bidId: string) {
+  const hit = openBid(orderId, bidId);
+  if (!hit) return;
+  updateBid(orderId, bidId, (b) => ({ ...b, status: "withdrawn" }));
+  systemMessage(orderId, `${hit.bid.company} withdrew its bid.`);
+}
+
+// ---------- Inspection companies: profile, KYC, team ----------
+
+export type KycDocType =
+  | "Certificate of incorporation"
+  | "GST certificate"
+  | "PAN card"
+  | "IEC certificate"
+  | "Accreditation certificate"
+  | "Cancelled cheque / bank letter";
+
+export const KYC_REQUIRED: readonly KycDocType[] = [
+  "Certificate of incorporation",
+  "GST certificate",
+  "PAN card",
+  "Cancelled cheque / bank letter",
+];
+
+export interface KycDoc {
+  id: string;
+  type: KycDocType;
+  fileName: string;
+  /** Blob id in IndexedDB. */
+  blobId: string;
+  sha256: string;
+  uploadedAt: string;
+  status: "submitted" | "verified" | "rejected";
+  note?: string;
+}
+
+export type KycStatus = "not-started" | "in-progress" | "submitted" | "verified" | "rejected";
+
+export interface Company {
+  id: string;
+  name: string;
+  gstin?: string;
+  pan?: string;
+  address: string;
+  email: string;
+  phone: string;
+  kyc: KycDoc[];
+  createdAt: string;
+}
+
+export function kycStatus(c: Company): KycStatus {
+  if (c.kyc.length === 0) return "not-started";
+  if (c.kyc.some((d) => d.status === "rejected")) return "rejected";
+  const have = (t: KycDocType, st?: KycDoc["status"]) => c.kyc.some((d) => d.type === t && (!st || d.status === st));
+  if (KYC_REQUIRED.every((t) => have(t, "verified"))) return "verified";
+  if (KYC_REQUIRED.every((t) => have(t))) return "submitted";
+  return "in-progress";
+}
+
+export type TeamRole = "owner" | "sales" | "ops" | "finance" | "inspector";
+
+export const TEAM_ROLE_LABEL: Record<TeamRole, string> = {
+  owner: "Owner",
+  sales: "Sales",
+  ops: "Operations",
+  finance: "Finance",
+  inspector: "Inspector",
+};
+
+export type Area = "orders" | "enquiries" | "store" | "payments" | "certificates" | "compliance" | "kyc" | "team";
+
+/** What each team role can open in the company console. */
+export const ROLE_ACCESS: Record<TeamRole, readonly Area[]> = {
+  owner: ["orders", "enquiries", "store", "payments", "certificates", "compliance", "kyc", "team"],
+  sales: ["orders", "enquiries", "store"],
+  ops: ["orders", "certificates", "compliance"],
+  finance: ["orders", "payments", "kyc"],
+  inspector: ["orders", "certificates"],
+};
+
+export const canAccess = (role: TeamRole, area: Area) => ROLE_ACCESS[role].includes(area);
+
+export interface TeamMember {
+  id: string;
+  companyId: string;
+  name: string;
+  email?: string;
+  phone?: string;
+  role: TeamRole;
+  status: "invited" | "active";
+  invitedAt: string;
+}
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+/** Digits with an optional leading +, 8 to 15 digits (E.164 length), spaces and dashes allowed. */
+const PHONE_RE = /^\+?[0-9][0-9 -]{6,18}[0-9]$/;
+const phoneDigits = (p: string) => p.replace(/\D/g, "").length;
+
+export function createCompany(input: Omit<Company, "id" | "kyc" | "createdAt">, ownerName: string): Company {
+  const c: Company = {
+    ...input,
+    name: input.name.trim(),
+    gstin: input.gstin?.trim().toUpperCase() || undefined,
+    pan: input.pan?.trim().toUpperCase() || undefined,
+    id: uid("co"),
+    kyc: [],
+    createdAt: now(),
+  };
+  const owner: TeamMember = {
+    id: uid("tm"),
+    companyId: c.id,
+    name: ownerName.trim() || "Owner",
+    email: c.email,
+    phone: c.phone,
+    role: "owner",
+    status: "active",
+    invitedAt: now(),
+  };
+  const db = load();
+  commit({ ...db, companies: [...db.companies, c], team: [...db.team, owner] });
+  return c;
+}
+
+export function updateCompany(id: string, patch: Partial<Omit<Company, "id" | "kyc" | "createdAt">>) {
+  const db = load();
+  commit({ ...db, companies: db.companies.map((c) => (c.id === id ? { ...c, ...patch } : c)) });
+}
+
+/** Invite a team member by email or phone. Returns problems; empty means the invite was added. */
+export function inviteMember(
+  companyId: string,
+  input: { name: string; email?: string; phone?: string; role: TeamRole },
+): string[] {
+  const email = input.email?.trim().toLowerCase() || undefined;
+  const phone = input.phone?.trim() || undefined;
+  const problems: string[] = [];
+  if (!input.name.trim()) problems.push("Add the person's name.");
+  if (!email && !phone) problems.push("Add an email or a phone number to send the invite to.");
+  if (email && !EMAIL_RE.test(email)) problems.push("That email address doesn't look right.");
+  if (phone && (!PHONE_RE.test(phone) || phoneDigits(phone) < 8 || phoneDigits(phone) > 15))
+    problems.push("Phone numbers need 8 to 15 digits, like +91 98765 43210.");
+  const db = load();
+  const team = db.team.filter((m) => m.companyId === companyId);
+  if (email && team.some((m) => m.email === email)) problems.push(`${email} is already on the team.`);
+  if (phone && team.some((m) => m.phone && m.phone.replace(/\D/g, "") === phone.replace(/\D/g, "")))
+    problems.push(`${phone} is already on the team.`);
+  if (problems.length) return problems;
+  const m: TeamMember = {
+    id: uid("tm"),
+    companyId,
+    name: input.name.trim(),
+    email,
+    phone,
+    role: input.role,
+    status: "invited",
+    invitedAt: now(),
+  };
+  commit({ ...db, team: [...db.team, m] });
+  return [];
+}
+
+/** Change a member's role. The last owner can't be demoted, so the company never locks itself out. */
+export function setMemberRole(memberId: string, role: TeamRole) {
+  const db = load();
+  const m = db.team.find((x) => x.id === memberId);
+  if (!m || m.role === role) return;
+  if (m.role === "owner" && db.team.filter((x) => x.companyId === m.companyId && x.role === "owner").length === 1) return;
+  commit({ ...db, team: db.team.map((x) => (x.id === memberId ? { ...x, role } : x)) });
+}
+
+export function activateMember(memberId: string) {
+  const db = load();
+  commit({ ...db, team: db.team.map((x) => (x.id === memberId ? { ...x, status: "active" } : x)) });
+}
+
+export function removeMember(memberId: string) {
+  const db = load();
+  const m = db.team.find((x) => x.id === memberId);
+  if (!m) return;
+  if (m.role === "owner" && db.team.filter((x) => x.companyId === m.companyId && x.role === "owner").length === 1) return;
+  commit({ ...db, team: db.team.filter((x) => x.id !== memberId) });
+}
+
+export async function addKycDoc(companyId: string, type: KycDocType, file: File) {
+  const buf = await file.arrayBuffer();
+  const sha256 = await sha256Hex(buf);
+  const blobId = uid("kyc");
+  await putBlob(blobId, file);
+  const doc: KycDoc = { id: blobId, type, fileName: file.name, blobId, sha256, uploadedAt: now(), status: "submitted" };
+  const db = load();
+  commit({
+    ...db,
+    companies: db.companies.map((c) =>
+      // A new upload of the same type replaces the old one.
+      c.id === companyId ? { ...c, kyc: [...c.kyc.filter((d) => d.type !== type), doc] } : c,
+    ),
+  });
+  return doc;
+}
+
+/** Admin review of a KYC document. */
+export function reviewKycDoc(companyId: string, docId: string, status: "verified" | "rejected", note = "") {
+  const db = load();
+  commit({
+    ...db,
+    companies: db.companies.map((c) =>
+      c.id === companyId
+        ? { ...c, kyc: c.kyc.map((d) => (d.id === docId ? { ...d, status, note: note.trim() || undefined } : d)) }
+        : c,
+    ),
+  });
+}
+
+// ---------- Service store (feeds quick booking) ----------
+
+export const SERVICES = [
+  "Pre-Shipment Inspection (PSI)",
+  "Loading & Unloading Supervision",
+  "Container Stuffing Survey",
+  "Destination Cargo Inspection",
+] as const;
+
+export interface ServiceListing {
+  id: string;
+  companyId: string;
+  companyName: string;
+  service: string;
+  /** Commodities covered; empty means any. */
+  commodities: string[];
+  /** Port or city where surveyors are based. */
+  location: string;
+  priceUSD: number;
+  discountPct: number;
+  turnaroundDays: number;
+  surveyors: number;
+  availableFrom: string;
+  availableTo: string;
+  active: boolean;
+  createdAt: string;
+}
+
+export const listingNet = (l: Pick<ServiceListing, "priceUSD" | "discountPct">) =>
+  bidNet({ priceUSD: l.priceUSD, discountPct: l.discountPct });
+
+export function listingProblems(l: Omit<ServiceListing, "id" | "createdAt" | "companyName">): string[] {
+  const p: string[] = [];
+  if (!l.service.trim()) p.push("Pick a service.");
+  if (!l.location.trim()) p.push("Add the port or city.");
+  if (!(l.priceUSD > 0)) p.push("Price must be more than $0.");
+  if (l.discountPct < 0 || l.discountPct >= 100) p.push("Discount must be between 0 and 99%.");
+  if (!(l.turnaroundDays >= 1)) p.push("Turnaround must be at least 1 day.");
+  if (!(l.surveyors >= 1)) p.push("At least 1 surveyor must be available.");
+  if (!l.availableFrom || !l.availableTo || l.availableTo < l.availableFrom)
+    p.push("The 'available until' date must be on or after 'available from'.");
+  return p;
+}
+
+export function saveListing(input: Omit<ServiceListing, "id" | "createdAt" | "companyName"> & { id?: string }): string[] {
+  const problems = listingProblems(input);
+  if (problems.length) return problems;
+  const db = load();
+  const company = db.companies.find((c) => c.id === input.companyId);
+  if (!company) return ["Set up the company profile first."];
+  const clean = {
+    ...input,
+    service: input.service.trim(),
+    location: input.location.trim(),
+    commodities: input.commodities.map((c) => c.trim()).filter(Boolean),
+    companyName: company.name,
+  };
+  if (input.id && db.listings.some((l) => l.id === input.id)) {
+    commit({ ...db, listings: db.listings.map((l) => (l.id === input.id ? { ...l, ...clean, id: l.id } : l)) });
+  } else {
+    commit({ ...db, listings: [...db.listings, { ...clean, id: uid("lst"), createdAt: now() }] });
+  }
+  return [];
+}
+
+export function deleteListing(id: string) {
+  const db = load();
+  commit({ ...db, listings: db.listings.filter((l) => l.id !== id) });
+}
+
+const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+
+/** Listings a customer can quick-book: matching service, place, date and budget; cheapest first. */
+export function findListings(
+  listings: ServiceListing[],
+  q: { service: string; location: string; date: string; commodity?: string; maxPriceUSD?: number },
+): ServiceListing[] {
+  const place = norm(q.location).split(" ").filter((w) => w.length > 2 && !["port", "berth"].includes(w));
+  const commodity = norm(q.commodity ?? "");
+  return listings
+    .filter((l) => l.active && l.service === q.service)
+    .filter((l) => !q.date || (l.availableFrom <= q.date && q.date <= l.availableTo))
+    .filter((l) => place.length === 0 || place.some((w) => norm(l.location).includes(w)))
+    .filter((l) => !commodity || l.commodities.length === 0 || l.commodities.some((c) => commodity.includes(norm(c))))
+    .filter((l) => !q.maxPriceUSD || listingNet(l) <= q.maxPriceUSD)
+    .sort((a, b) => listingNet(a) - listingNet(b));
+}
+
+// ---------- Payments ----------
+
+export interface Payment {
+  id: string;
+  amountUSD: number;
+  method: "Bank transfer" | "UPI" | "Card" | "Letter of credit" | "Other";
+  reference: string;
+  receivedOn: string;
+}
+
+export interface Invoice {
+  number: string;
+  amountUSD: number;
+  discountPct: number;
+  issuedOn: string;
+  dueOn: string;
+  payments: Payment[];
+}
+
+export type PaymentStatus = "not-invoiced" | "unpaid" | "part-paid" | "paid" | "overdue";
+
+export const invoiceTotal = (i: Invoice) => bidNet({ priceUSD: i.amountUSD, discountPct: i.discountPct });
+export const invoicePaid = (i: Invoice) => i.payments.reduce((s, p) => s + p.amountUSD, 0);
+
+export function paymentStatus(o: Pick<Order, "invoice">, today = new Date().toISOString().slice(0, 10)): PaymentStatus {
+  const i = o.invoice;
+  if (!i) return "not-invoiced";
+  const paid = invoicePaid(i);
+  if (paid >= invoiceTotal(i)) return "paid";
+  if (i.dueOn < today) return "overdue";
+  return paid > 0 ? "part-paid" : "unpaid";
+}
+
+export function raiseInvoice(orderId: string, input: { amountUSD: number; discountPct: number; dueOn: string }): string[] {
+  const o = getOrder(orderId);
+  if (!o) return ["Order not found."];
+  if (o.status === "enquiry") return ["Invoice after the customer confirms the booking."];
+  if (o.invoice) return ["This order already has an invoice."];
+  if (!(input.amountUSD > 0)) return ["Amount must be more than $0."];
+  if (input.discountPct < 0 || input.discountPct >= 100) return ["Discount must be between 0 and 99%."];
+  if (!input.dueOn) return ["Add a due date."];
+  const invoice: Invoice = {
+    number: `INV-${o.id}`,
+    amountUSD: input.amountUSD,
+    discountPct: input.discountPct,
+    issuedOn: now().slice(0, 10),
+    dueOn: input.dueOn,
+    payments: [],
+  };
+  updateOrder(orderId, (x) => ({ ...x, invoice }));
+  systemMessage(orderId, `Invoice ${invoice.number} raised for $${invoiceTotal(invoice).toLocaleString()}, due ${input.dueOn}.`);
+  return [];
+}
+
+export function recordPayment(orderId: string, p: Omit<Payment, "id">): string[] {
+  const o = getOrder(orderId);
+  const i = o?.invoice;
+  if (!o || !i) return ["Raise an invoice first."];
+  if (!(p.amountUSD > 0)) return ["Amount must be more than $0."];
+  const due = invoiceTotal(i) - invoicePaid(i);
+  if (p.amountUSD > due) return [`Only $${due.toLocaleString()} is left to pay on this invoice.`];
+  updateOrder(orderId, (x) => ({ ...x, invoice: { ...i, payments: [...i.payments, { ...p, id: uid("pay") }] } }));
+  const left = due - p.amountUSD;
+  systemMessage(
+    orderId,
+    `Payment of $${p.amountUSD.toLocaleString()} received (${p.method}${p.reference ? `, ref ${p.reference}` : ""}). ${left > 0 ? `$${left.toLocaleString()} still due.` : "Invoice fully paid."}`,
+  );
+  return [];
+}
+
+// ---------- Certificates and compliance ----------
+
+export const CERT_TYPES = [
+  "Certificate of Conformity (CoC)",
+  "Clean Inspection Certificate (CIC)",
+  "Halal certificate",
+  "Certificate of quality",
+  "Certificate of weight",
+  "Phytosanitary certificate",
+  "Fumigation certificate",
+  "Certificate of origin",
+] as const;
+export type CertType = (typeof CERT_TYPES)[number];
+
+export interface Certificate {
+  id: string;
+  companyId: string;
+  orderId?: string;
+  type: CertType;
+  number: string;
+  issuedTo: string;
+  issuedOn: string;
+  validUntil?: string;
+  /** Short code anyone holding the certificate can use to check it. */
+  verifyCode: string;
+  status: "issued" | "revoked";
+  revokedReason?: string;
+  blobId?: string;
+  fileName?: string;
+  sha256?: string;
+}
+
+const certPrefix = (t: CertType) =>
+  (t.match(/\(([A-Za-z]+)\)/)?.[1] ?? t.split(" ").map((w) => w[0]).join("")).toUpperCase();
+
+function verifyCode() {
+  const bytes = new Uint8Array(10);
+  crypto.getRandomValues(bytes);
+  // Crockford base32 without I, L, O, U so codes read cleanly over the phone.
+  const abc = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+  const s = Array.from(bytes, (b) => abc[b % 32]).join("");
+  return `${s.slice(0, 5)}-${s.slice(5)}`;
+}
+
+export async function issueCertificate(input: {
+  companyId: string;
+  orderId?: string;
+  type: CertType;
+  issuedTo: string;
+  validUntil?: string;
+  file?: File | null;
+}): Promise<{ cert?: Certificate; problems: string[] }> {
+  const db = load();
+  const problems: string[] = [];
+  const company = db.companies.find((c) => c.id === input.companyId);
+  if (!company) problems.push("Set up the company profile first.");
+  if (!input.issuedTo.trim()) problems.push("Add who the certificate is issued to.");
+  const today = now().slice(0, 10);
+  if (input.validUntil && input.validUntil < today) problems.push("'Valid until' can't be in the past.");
+  const order = input.orderId ? db.orders.find((o) => o.id === input.orderId) : undefined;
+  if (input.orderId && !order) problems.push("Order not found.");
+  if (order && order.status !== "completed") problems.push("Issue certificates after the inspection is completed.");
+  if (problems.length) return { problems };
+
+  let file: Pick<Certificate, "blobId" | "fileName" | "sha256"> = {};
+  if (input.file) {
+    const blobId = uid("cert");
+    const sha256 = await sha256Hex(await input.file.arrayBuffer());
+    await putBlob(blobId, input.file);
+    file = { blobId, fileName: input.file.name, sha256 };
+  }
+  const fresh = load();
+  const year = today.slice(0, 4);
+  const prefix = certPrefix(input.type);
+  const count = fresh.certificates.filter((c) => c.companyId === input.companyId && c.type === input.type).length + 1;
+  const cert: Certificate = {
+    id: uid("crt"),
+    companyId: input.companyId,
+    orderId: input.orderId,
+    type: input.type,
+    number: `${prefix}-${year}-${String(count).padStart(4, "0")}`,
+    issuedTo: input.issuedTo.trim(),
+    issuedOn: today,
+    validUntil: input.validUntil || undefined,
+    verifyCode: verifyCode(),
+    status: "issued",
+    ...file,
+  };
+  commit({ ...fresh, certificates: [cert, ...fresh.certificates] });
+  if (cert.orderId) {
+    systemMessage(cert.orderId, `${company!.name} issued ${cert.type} ${cert.number}. Check code: ${cert.verifyCode}.`);
+  }
+  return { cert, problems: [] };
+}
+
+export function revokeCertificate(id: string, reason: string) {
+  if (!reason.trim()) return ["Say why the certificate is revoked."];
+  const db = load();
+  const cert = db.certificates.find((c) => c.id === id);
+  if (!cert || cert.status === "revoked") return [];
+  commit({
+    ...db,
+    certificates: db.certificates.map((c) => (c.id === id ? { ...c, status: "revoked", revokedReason: reason.trim() } : c)),
+  });
+  if (cert.orderId) systemMessage(cert.orderId, `${cert.type} ${cert.number} was revoked: ${reason.trim()}`);
+  return [];
+}
+
+export type CertCheck =
+  | { result: "valid" | "expired" | "revoked"; cert: Certificate; companyName: string }
+  | { result: "not-found" };
+
+export function checkCertificate(code: string, today = now().slice(0, 10)): CertCheck {
+  const q = code.trim().toUpperCase();
+  const db = load();
+  const cert = db.certificates.find((c) => c.verifyCode === q || c.number === q);
+  if (!cert) return { result: "not-found" };
+  const companyName = db.companies.find((c) => c.id === cert.companyId)?.name ?? "Unknown company";
+  if (cert.status === "revoked") return { result: "revoked", cert, companyName };
+  if (cert.validUntil && cert.validUntil < today) return { result: "expired", cert, companyName };
+  return { result: "valid", cert, companyName };
+}
+
+/** An accreditation, licence or scheme approval the company holds (ISO 17020, Halal body approval, CoC programme). */
+export interface ComplianceItem {
+  id: string;
+  companyId: string;
+  name: string;
+  issuedBy: string;
+  reference: string;
+  validUntil: string;
+  /** Certificate types this approval lets the company issue. */
+  covers: CertType[];
+  blobId?: string;
+  fileName?: string;
+}
+
+export type ComplianceState = "valid" | "expiring" | "expired";
+
+/** Expiring = within 60 days, so there's time to renew before work stops. */
+export function complianceState(c: Pick<ComplianceItem, "validUntil">, today = now().slice(0, 10)): ComplianceState {
+  if (c.validUntil < today) return "expired";
+  const days = (Date.parse(c.validUntil) - Date.parse(today)) / 86_400_000;
+  return days <= 60 ? "expiring" : "valid";
+}
+
+export async function addCompliance(input: Omit<ComplianceItem, "id" | "blobId" | "fileName"> & { file?: File | null }) {
+  const problems: string[] = [];
+  if (!input.name.trim()) problems.push("Add the accreditation or licence name.");
+  if (!input.issuedBy.trim()) problems.push("Add who issued it.");
+  if (!input.validUntil) problems.push("Add the expiry date.");
+  if (problems.length) return problems;
+  const { file, ...rest } = input;
+  let extra: Pick<ComplianceItem, "blobId" | "fileName"> = {};
+  if (file) {
+    const blobId = uid("cmp");
+    await putBlob(blobId, file);
+    extra = { blobId, fileName: file.name };
+  }
+  const db = load();
+  commit({
+    ...db,
+    compliance: [...db.compliance, { ...rest, name: rest.name.trim(), issuedBy: rest.issuedBy.trim(), id: uid("cmp"), ...extra }],
+  });
+  return [];
+}
+
+export function removeCompliance(id: string) {
+  const db = load();
+  commit({ ...db, compliance: db.compliance.filter((c) => c.id !== id) });
+}
+
+/** Certificate types the company may not issue because no valid approval covers them. */
+export function uncoveredCertTypes(items: ComplianceItem[], companyId: string, today?: string): CertType[] {
+  const ok = new Set(
+    items
+      .filter((i) => i.companyId === companyId && complianceState(i, today) !== "expired")
+      .flatMap((i) => i.covers),
+  );
+  return CERT_TYPES.filter((t) => !ok.has(t));
 }
 
 // ---------- Messages and automatic flags ----------
