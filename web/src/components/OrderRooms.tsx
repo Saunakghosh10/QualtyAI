@@ -22,12 +22,18 @@ import {
   addEvidence,
   submitBid,
   acceptBid,
+  counterBid,
+  discountBid,
+  setFollowUp,
+  withdrawBid,
+  bidNet,
   completeInspection,
   setPartyVerified,
   describeSpec,
   getBlob,
   type Role,
   type Order,
+  type Bid,
   type ChatMessage,
   type Party,
   type EvidenceRecord,
@@ -558,13 +564,74 @@ function ComposerBar({ order, role, author, canReport }: { order: Order; role: R
   );
 }
 
+function BidActions({ order, bid, role }: { order: Order; bid: Bid; role: Role }) {
+  const [mode, setMode] = useState<"counter" | "discount" | "follow" | null>(null);
+  const [value, setValue] = useState("");
+  const [note, setNote] = useState("");
+  const isCompany = role === "company";
+  const close = () => {
+    setMode(null);
+    setValue("");
+    setNote("");
+  };
+  const apply = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (mode === "counter" && Number(value) > 0) counterBid(order.id, bid.id, isCompany ? "company" : "customer", Number(value), note);
+    if (mode === "discount" && Number(value) >= 0 && Number(value) < 100) discountBid(order.id, bid.id, Number(value));
+    if (mode === "follow") setFollowUp(order.id, bid.id, value);
+    close();
+  };
+  const link: React.CSSProperties = { fontSize: "12px", fontWeight: 600, color: "var(--accent-primary)", cursor: "pointer", background: "none", border: "none", padding: 0, textDecoration: "underline" };
+  return (
+    <div style={{ gridColumn: "1 / -1", display: "flex", flexDirection: "column", gap: "6px" }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "12px" }}>
+        <button type="button" style={link} onClick={() => setMode(mode === "counter" ? null : "counter")}>
+          {isCompany ? "Revise price" : "Counter-offer"}
+        </button>
+        {isCompany && (
+          <>
+            <button type="button" style={link} onClick={() => setMode(mode === "discount" ? null : "discount")}>Give a discount</button>
+            <button type="button" style={link} onClick={() => setMode(mode === "follow" ? null : "follow")}>Set follow-up</button>
+            <button type="button" style={{ ...link, color: "var(--danger-text)" }} onClick={() => withdrawBid(order.id, bid.id)}>Withdraw</button>
+          </>
+        )}
+      </div>
+      {mode && (
+        <form onSubmit={apply} style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+          <input
+            required
+            autoFocus
+            type={mode === "follow" ? "date" : "number"}
+            min={0}
+            max={mode === "discount" ? 99 : undefined}
+            step="any"
+            aria-label={mode === "counter" ? "Offer in USD" : mode === "discount" ? "Discount on this bid in percent" : "Follow-up date"}
+            placeholder={mode === "counter" ? "Price (USD)" : mode === "discount" ? "Discount %" : ""}
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            style={{ ...field, flex: "0 1 140px" }}
+          />
+          {mode === "counter" && (
+            <input aria-label="Note" placeholder="Note (optional)" value={note} onChange={(e) => setNote(e.target.value)} style={{ ...field, flex: "1 1 160px" }} />
+          )}
+          <button type="submit" className="btn-primary" style={{ padding: "7px 12px", fontSize: "12.5px" }}>
+            {mode === "counter" ? "Send offer" : mode === "discount" ? "Apply discount" : "Save date"}
+          </button>
+          <button type="button" style={link} onClick={close}>Cancel</button>
+        </form>
+      )}
+    </div>
+  );
+}
+
 function Bids({ order, role }: { order: Order; role: Role }) {
-  const [form, setForm] = useState({ company: "", price: "", days: "", scope: "" });
+  const [form, setForm] = useState({ company: "", price: "", days: "", scope: "", discount: "" });
   const open = order.status === "enquiry";
+  const live = order.bids.filter((b) => b.status !== "withdrawn");
   return (
     <div style={{ padding: "14px 20px", borderBottom: "1px solid var(--border-main)" }}>
       <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "13px", fontWeight: 600, color: "var(--text-main)", marginBottom: "10px" }}>
-        <Gavel size={16} weight="bold" /> Bids ({order.bids.length})
+        <Gavel size={16} weight="bold" /> Bids ({live.length})
       </div>
       {order.bids.length === 0 && (
         <p style={{ fontSize: "12.5px", color: "var(--text-muted)", marginBottom: "10px" }}>
@@ -573,54 +640,86 @@ function Bids({ order, role }: { order: Order; role: Role }) {
       )}
       <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: open && role === "company" ? "12px" : 0 }}>
         {[...order.bids]
-          .sort((a, b) => a.priceUSD - b.priceUSD)
-          .map((b) => (
-            <div
-              key={b.id}
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1fr auto",
-                gap: "8px",
-                alignItems: "center",
-                padding: "10px 12px",
-                borderRadius: "8px",
-                border: `1px solid ${b.status === "accepted" ? "var(--success-border)" : "var(--border-main)"}`,
-                backgroundColor: b.status === "accepted" ? "var(--success-bg)" : "var(--bg-card)",
-                opacity: b.status === "declined" ? 0.6 : 1,
-              }}
-            >
-              <div>
-                <div style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-main)" }}>{b.company}</div>
-                <div style={{ fontSize: "12px", color: "var(--text-secondary)" }}>
-                  <span className="font-mono" style={{ fontVariantNumeric: "tabular-nums" }}>${b.priceUSD.toLocaleString()}</span> · {b.days} day(s)
-                  {b.scope && ` · ${b.scope}`}
+          .sort((a, b) => Number(a.status === "withdrawn") - Number(b.status === "withdrawn") || bidNet(a) - bidNet(b))
+          .map((b) => {
+            const last = b.rounds?.[b.rounds.length - 1];
+            const negotiable = open && b.status === "open" && (role === "company" || role === "customer");
+            return (
+              <div
+                key={b.id}
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr auto",
+                  gap: "8px",
+                  alignItems: "center",
+                  padding: "10px 12px",
+                  borderRadius: "8px",
+                  border: `1px solid ${b.status === "accepted" ? "var(--success-border)" : "var(--border-main)"}`,
+                  backgroundColor: b.status === "accepted" ? "var(--success-bg)" : "var(--bg-card)",
+                  opacity: b.status === "declined" || b.status === "withdrawn" ? 0.6 : 1,
+                }}
+              >
+                <div>
+                  <div style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-main)" }}>
+                    {b.company}
+                    {b.status === "withdrawn" && <span style={{ fontWeight: 400, color: "var(--text-muted)" }}> · withdrawn</span>}
+                  </div>
+                  <div style={{ fontSize: "12px", color: "var(--text-secondary)" }}>
+                    <span className="font-mono" style={{ fontVariantNumeric: "tabular-nums" }}>${bidNet(b).toLocaleString()}</span>
+                    {b.discountPct ? (
+                      <span style={{ color: "var(--success-text)" }}>
+                        {" "}
+                        ({b.discountPct}% off <s>${b.priceUSD.toLocaleString()}</s>)
+                      </span>
+                    ) : null}
+                    {" "}· {b.days} day(s)
+                    {b.scope && ` · ${b.scope}`}
+                  </div>
+                  {last?.by === "customer" && b.status === "open" && (
+                    <div style={{ fontSize: "12px", color: "var(--warning-text)", marginTop: "2px" }}>
+                      Customer asked for ${last.priceUSD.toLocaleString()}
+                      {last.note && `: "${last.note}"`}
+                    </div>
+                  )}
+                  {b.followUpOn && b.status === "open" && role === "company" && (
+                    <div style={{ fontSize: "11.5px", color: "var(--text-muted)", marginTop: "2px" }}>Follow up on {b.followUpOn}</div>
+                  )}
                 </div>
+                {b.status === "accepted" ? (
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", fontSize: "12px", color: "var(--success-text)" }}>
+                    <ShieldCheck size={14} weight="bold" /> Accepted
+                  </span>
+                ) : open && role === "customer" && b.status === "open" ? (
+                  <button className="btn-primary" onClick={() => acceptBid(order.id, b.id)} style={{ padding: "7px 14px", fontSize: "12.5px" }}>
+                    Accept bid
+                  </button>
+                ) : null}
+                {negotiable && <BidActions order={order} bid={b} role={role} />}
               </div>
-              {b.status === "accepted" ? (
-                <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", fontSize: "12px", color: "var(--success-text)" }}>
-                  <ShieldCheck size={14} weight="bold" /> Accepted
-                </span>
-              ) : open && role === "customer" ? (
-                <button className="btn-primary" onClick={() => acceptBid(order.id, b.id)} style={{ padding: "7px 14px", fontSize: "12.5px" }}>
-                  Accept bid
-                </button>
-              ) : null}
-            </div>
-          ))}
+            );
+          })}
       </div>
       {open && role === "company" && (
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            if (!form.company.trim() || !Number(form.price)) return;
-            submitBid(order.id, { company: form.company.trim(), priceUSD: Number(form.price), days: Number(form.days) || 1, scope: form.scope.trim() });
-            setForm({ company: "", price: "", days: "", scope: "" });
+            const discount = Number(form.discount) || 0;
+            if (!form.company.trim() || !(Number(form.price) > 0) || discount < 0 || discount >= 100) return;
+            submitBid(order.id, {
+              company: form.company.trim(),
+              priceUSD: Number(form.price),
+              days: Number(form.days) || 1,
+              scope: form.scope.trim(),
+              discountPct: discount || undefined,
+            });
+            setForm({ company: "", price: "", days: "", scope: "", discount: "" });
           }}
           style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: "8px" }}
         >
           <input required aria-label="Your company" placeholder="Your company" value={form.company} onChange={(e) => setForm({ ...form, company: e.target.value })} style={field} />
-          <input required type="number" aria-label="Price in USD" placeholder="Price (USD)" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} style={field} />
-          <input type="number" aria-label="Days" placeholder="Days" value={form.days} onChange={(e) => setForm({ ...form, days: e.target.value })} style={field} />
+          <input required type="number" min={1} aria-label="Price in USD" placeholder="Price (USD)" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} style={field} />
+          <input type="number" min={0} max={99} aria-label="Discount in percent" placeholder="Discount % (optional)" value={form.discount} onChange={(e) => setForm({ ...form, discount: e.target.value })} style={field} />
+          <input type="number" min={1} aria-label="Days" placeholder="Days" value={form.days} onChange={(e) => setForm({ ...form, days: e.target.value })} style={field} />
           <input aria-label="Scope" placeholder="Scope (e.g. 2 surveyors, lab)" value={form.scope} onChange={(e) => setForm({ ...form, scope: e.target.value })} style={field} />
           <button type="submit" className="btn-primary" style={{ padding: "8px 14px", fontSize: "12.5px" }}>
             Submit bid

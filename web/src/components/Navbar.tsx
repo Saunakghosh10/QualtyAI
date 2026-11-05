@@ -167,6 +167,14 @@ export default function Navbar({ onOpenBooking }: NavbarProps) {
           >
             Surveyor Hubs
           </a>
+          <a
+            href="#company"
+            style={{ transition: "color 0.15s" }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = "var(--accent-primary)")}
+            onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text-secondary)")}
+          >
+            For companies
+          </a>
         </nav>
 
         {/* Right Section: Time + Auth + Theme Toggle + CTA */}

@@ -10,6 +10,7 @@ import QualityEvidenceVault from "@/components/QualityEvidenceVault";
 import QualityPilot from "@/components/QualityPilot";
 import SurveyorNetwork from "@/components/SurveyorNetwork";
 import OrderRooms from "@/components/OrderRooms";
+import CompanyConsole from "@/components/CompanyConsole";
 import Footer from "@/components/Footer";
 import BookingModal from "@/components/BookingModal";
 
@@ -65,6 +66,9 @@ export default function Home() {
 
       {/* Order chatrooms: customer + inspection company + admin, reports, flags, summary */}
       <OrderRooms onBook={handleOpenQuickBooking} />
+
+      {/* Inspection company console: store, bids, payments, certificates, compliance, KYC, team */}
+      <CompanyConsole />
 
       {/* Section 03: Quality Evidence Vault with GPS & Timestamp Watermarks */}
       <QualityEvidenceVault />

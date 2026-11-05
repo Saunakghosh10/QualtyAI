@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   X,
   CheckCircle,
@@ -16,7 +16,7 @@ import {
   FileText,
 } from "@phosphor-icons/react";
 import { CommodityParams } from "./CommodityCalibrator";
-import { useDB, specLabel, checkParty, createOrder } from "@/lib/store";
+import { useDB, specLabel, checkParty, createOrder, findListings, listingNet } from "@/lib/store";
 
 interface BookingModalProps {
   isOpen: boolean;
@@ -66,6 +66,20 @@ export default function BookingModal({
 
   // Spec attached to the order: from the Calibrator or a saved buyer spec.
   const savedSpecs = useDB().specs;
+  const listings = useDB().listings;
+  const [listingId, setListingId] = useState<string | null>(null);
+  // Company store listings that fit this booking; cheapest is picked unless the customer chooses.
+  const matches = useMemo(
+    () =>
+      findListings(listings, {
+        service: formData.serviceName,
+        location: formData.portLocation,
+        date: formData.inspectionDate,
+        commodity: formData.commodity,
+      }),
+    [listings, formData.serviceName, formData.portLocation, formData.inspectionDate, formData.commodity],
+  );
+  const chosen = listingId === "" ? null : (matches.find((l) => l.id === listingId) ?? matches[0] ?? null);
   const [spec, setSpec] = useState<CommodityParams | null>(null);
   const [specName, setSpecName] = useState<string | null>(null);
   const [selectedSpecId, setSelectedSpecId] = useState("");
@@ -152,6 +166,11 @@ export default function BookingModal({
       inspectionDate: formData.inspectionDate,
       volumeTons: formData.volumeTons,
       customerName: `${formData.contactName} (${formData.companyName})`,
+      ...(bookingMode === "quick"
+        ? chosen
+          ? { inspectionCompany: chosen.companyName, priceUSD: listingNet(chosen), listingId: chosen.id }
+          : { priceUSD: 650 }
+        : {}),
     });
     setIsSubmitting(false);
     setSubmittedRef(order.id);
@@ -629,27 +648,44 @@ type="number"
 
                 {/* Pricing / Budget section based on mode */}
                 {bookingMode === "quick" ? (
-                  <div
-                    style={{
-                      padding: "16px",
-                      borderRadius: "10px",
-                      backgroundColor: "var(--bg-subtle)",
-                      border: "1px solid var(--border-main)",
-                    }}
-                  >
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <div>
-                        <div style={{ fontSize: "13.5px", fontWeight: 600, color: "var(--text-main)" }}>
-                          Standard Rapid Inspection Rate
-                        </div>
-                        <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>
-                          Flat rate for certified local surveyor dispatch (includes digital photo evidence)
-                        </div>
-                      </div>
-                      <div className="font-mono" style={{ fontSize: "20px", fontWeight: 700, color: "var(--accent-primary)" }}>
-                        $650 USD
-                      </div>
+                  <div role="radiogroup" aria-label="Choose an inspection company" style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                    <div style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-main)" }}>
+                      {matches.length
+                        ? `${matches.length} compan${matches.length === 1 ? "y has" : "ies have"} surveyors free at this port on this date`
+                        : "No company store matches this service, port and date yet"}
                     </div>
+                    {[...matches.map((l) => ({
+                      id: l.id,
+                      name: l.companyName,
+                      detail: `${l.surveyors} surveyor(s) in ${l.location} · ${l.turnaroundDays} day turnaround${l.discountPct ? ` · ${l.discountPct}% off $${l.priceUSD.toLocaleString()}` : ""}`,
+                      price: listingNet(l),
+                    })), { id: "", name: "Qualty partner surveyors", detail: "Standard rate, nearest certified surveyor we can dispatch", price: 650 }].map((opt) => {
+                      const on = (chosen?.id ?? "") === opt.id;
+                      return (
+                        <label
+                          key={opt.id || "default"}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "10px",
+                            padding: "12px 14px",
+                            borderRadius: "10px",
+                            cursor: "pointer",
+                            backgroundColor: on ? "var(--accent-light)" : "var(--bg-card)",
+                            border: `1px solid ${on ? "var(--accent-border)" : "var(--border-main)"}`,
+                          }}
+                        >
+                          <input type="radio" name="listing" checked={on} onChange={() => setListingId(opt.id)} />
+                          <span style={{ flex: 1, minWidth: 0 }}>
+                            <span style={{ display: "block", fontSize: "13.5px", fontWeight: 600, color: "var(--text-main)" }}>{opt.name}</span>
+                            <span style={{ display: "block", fontSize: "12px", color: "var(--text-muted)" }}>{opt.detail}</span>
+                          </span>
+                          <span className="font-mono" style={{ fontSize: "16px", fontWeight: 700, color: "var(--accent-primary)" }}>
+                            ${opt.price.toLocaleString()}
+                          </span>
+                        </label>
+                      );
+                    })}
                   </div>
                 ) : (
                   <div>
