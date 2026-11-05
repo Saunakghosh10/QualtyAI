@@ -2,13 +2,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import "fake-indexeddb/auto";
 import { riceSpec } from "../../test/fixtures";
 
-type Store = typeof import("./store");
+type Store = typeof import("./local-store");
 let S: Store;
 
 beforeEach(async () => {
   localStorage.clear();
   vi.resetModules();
-  S = await import("./store");
+  S = await import("./local-store");
 });
 
 const party = (name: string) => S.checkParty({ name }).party;

@@ -2,7 +2,7 @@
 
 import React, { useMemo, useState } from "react";
 import { DownloadSimple, FileText } from "@phosphor-icons/react";
-import { useDB, getBlob, sha256Hex, type EvidenceRecord } from "@/lib/store";
+import { useDB, getBlob, sha256Hex, orderRef, type EvidenceRecord } from "@/lib/store";
 import EvidenceMedia, { stampLines } from "./EvidenceMedia";
 
 const field: React.CSSProperties = {
@@ -24,6 +24,10 @@ export default function VaultRecords() {
   const [checks, setChecks] = useState<Record<string, "ok" | "changed" | "missing">>({});
 
   const orderById = useMemo(() => new Map(db.orders.map((o) => [o.id, o])), [db.orders]);
+  const refOf = (id: string) => {
+    const o = orderById.get(id);
+    return o ? orderRef(o) : id;
+  };
 
   const items = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -34,7 +38,7 @@ export default function VaultRecords() {
         if (from && day < from) return false;
         if (to && day > to) return false;
         if (!needle) return true;
-        return [e.orderId, e.caption, e.fileName, o?.commodity, o?.buyer.name, o?.seller.name, o?.location]
+        return [e.orderId, o ? orderRef(o) : "", e.caption, e.fileName, o?.commodity, o?.buyer.name, o?.seller.name, o?.location]
           .filter(Boolean)
           .some((s) => String(s).toLowerCase().includes(needle));
       })
@@ -52,7 +56,7 @@ export default function VaultRecords() {
     const rows = [["order", "kind", "file", "captured_at", "gps", "author", "caption", "sha256"]];
     items.forEach((e) =>
       rows.push([
-        e.orderId,
+        refOf(e.orderId),
         e.kind,
         e.fileName,
         e.capturedAt,
@@ -126,7 +130,7 @@ export default function VaultRecords() {
                     )}
                     <div style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-main)" }}>{e.caption || e.fileName}</div>
                     <div style={{ fontSize: "12px", color: "var(--text-secondary)" }}>
-                      {e.orderId}
+                      {refOf(e.orderId)}
                       {o ? ` · ${o.commodity} · Buyer ${o.buyer.name}` : ""}
                     </div>
                     <div className="font-mono" style={{ fontSize: "11px", color: "var(--text-muted)" }}>

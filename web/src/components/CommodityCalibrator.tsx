@@ -2,6 +2,7 @@
 
 import React, { useMemo, useState } from "react";
 import { useDB, saveSpec, deleteSpec, specLabel } from "@/lib/store";
+import { run } from "@/lib/notify";
 import { marketFit } from "@/lib/markets";
 import {
   Sliders,
@@ -178,10 +179,11 @@ export default function CommodityCalibrator({ onInjectIntoBooking }: CommodityCa
   };
 
   // Quality Checker: Save Spec
-  const handleSaveSpec = (e: React.FormEvent) => {
+  const handleSaveSpec = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newSpecName.trim()) return;
-    const saved = saveSpec({ buyerName: newSpecName.trim(), reference: newSpecRef.trim(), params: { ...params } });
+    const saved = await run(saveSpec({ buyerName: newSpecName.trim(), reference: newSpecRef.trim(), params: { ...params } }));
+    if (!saved) return;
     setLoadedSpecId(saved.id);
     setNewSpecName("");
     setNewSpecRef("");
@@ -386,7 +388,7 @@ export default function CommodityCalibrator({ onInjectIntoBooking }: CommodityCa
             <button
               type="button"
               onClick={() => {
-                deleteSpec(loadedSpecId);
+                void run(deleteSpec(loadedSpecId));
                 setLoadedSpecId("");
               }}
               aria-label="Delete this saved spec"

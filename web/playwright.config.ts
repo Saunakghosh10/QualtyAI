@@ -6,6 +6,8 @@ const external = process.env.BASE_URL;
 
 export default defineConfig({
   testDir: "./e2e",
+  // e2e/live runs against the real Supabase project; see playwright.live.config.ts.
+  testIgnore: /live\//,
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
