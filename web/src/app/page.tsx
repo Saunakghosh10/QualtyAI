@@ -13,6 +13,8 @@ import OrderRooms from "@/components/OrderRooms";
 import CompanyConsole from "@/components/CompanyConsole";
 import Footer from "@/components/Footer";
 import BookingModal from "@/components/BookingModal";
+import AccountModal from "@/components/AccountModal";
+import Toaster from "@/components/Toaster";
 
 export default function Home() {
   const [isBookingOpen, setIsBookingOpen] = useState<boolean>(false);
@@ -81,6 +83,9 @@ export default function Home() {
 
       {/* Footer */}
       <Footer />
+
+      <AccountModal />
+      <Toaster />
 
       {/* Dual Booking Modal (Quick Inspection vs Raise an Inquiry) */}
       <BookingModal

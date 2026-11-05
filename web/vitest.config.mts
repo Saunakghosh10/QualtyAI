@@ -12,7 +12,8 @@ export default defineConfig({
       provider: "v8",
       reporter: ["text", "lcov"],
       include: ["src/lib/**"],
-      exclude: ["src/**/*.test.ts"],
+      // The Supabase store needs a live project; e2e/live (playwright.live.config.ts) covers it.
+      exclude: ["src/**/*.test.ts", "src/lib/remote-store.ts", "src/lib/supabase.ts", "src/lib/database.types.ts"],
       thresholds: { lines: 80, functions: 80, branches: 70, statements: 80 },
     },
   },

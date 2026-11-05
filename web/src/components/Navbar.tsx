@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useSyncExternalStore } from "react";
 import { Sun, Moon, ArrowRight, Clock } from "@phosphor-icons/react";
 import { useTheme } from "@/context/ThemeContext";
+import { isRemote, useSession, signOut } from "@/lib/store";
 
 interface NavbarProps {
   onOpenBooking: () => void;
@@ -15,6 +16,7 @@ export default function Navbar({ onOpenBooking }: NavbarProps) {
   const [utcTime, setUtcTime] = useState<string>("");
   // true only after hydration, so the theme button never mismatches the server HTML
   const mounted = useSyncExternalStore(noopSubscribe, () => true, () => false);
+  const { session, ready } = useSession();
 
   useEffect(() => {
     const updateTime = () => {
@@ -218,6 +220,28 @@ export default function Navbar({ onOpenBooking }: NavbarProps) {
             >
               {theme === "light" ? <Moon size={16} weight="bold" /> : <Sun size={16} weight="bold" />}
             </button>
+          )}
+
+          {/* Account (only with the Supabase backend) */}
+          {isRemote && mounted && ready && (
+            session ? (
+              <button
+                onClick={() => void signOut()}
+                className="btn-secondary"
+                title={`Signed in as ${session.email}`}
+                style={{ padding: "8px 14px", fontSize: "13px" }}
+              >
+                Sign out
+              </button>
+            ) : (
+              <button
+                onClick={() => window.dispatchEvent(new CustomEvent("qualty:open-auth"))}
+                className="btn-secondary"
+                style={{ padding: "8px 14px", fontSize: "13px" }}
+              >
+                Sign in
+              </button>
+            )
           )}
 
           {/* Book Inspection CTA */}

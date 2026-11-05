@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { riceSpec } from "../../test/fixtures";
 
-type Store = typeof import("./store");
+type Store = typeof import("./local-store");
 let S: Store;
 
 // The store caches in module scope; load a fresh copy for every test.
 beforeEach(async () => {
   vi.resetModules();
-  S = await import("./store");
+  S = await import("./local-store");
 });
 
 const party = (name: string) => S.checkParty({ name }).party;
@@ -76,7 +76,7 @@ describe("saved specs", () => {
   it("survives a reload (fresh module reads localStorage)", async () => {
     S.saveSpec({ buyerName: "Persisted", reference: "", params: riceSpec });
     vi.resetModules();
-    const fresh: Store = await import("./store");
+    const fresh: Store = await import("./local-store");
     fresh.saveSpec({ buyerName: "Second", reference: "", params: riceSpec });
     expect(db().specs.map((s: { buyerName: string }) => s.buyerName)).toEqual(["Second", "Persisted"]);
   });
