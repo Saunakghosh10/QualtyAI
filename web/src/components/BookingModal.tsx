@@ -16,7 +16,8 @@ import {
   FileText,
 } from "@phosphor-icons/react";
 import { CommodityParams } from "./CommodityCalibrator";
-import { useDB, specLabel, checkParty, createOrder, findListings, listingNet } from "@/lib/store";
+import { useDB, useSession, isRemote, specLabel, checkParty, createOrder, findListings, listingNet, orderRef } from "@/lib/store";
+import { run } from "@/lib/notify";
 
 interface BookingModalProps {
   isOpen: boolean;
@@ -37,6 +38,7 @@ export default function BookingModal({
   const [step, setStep] = useState<number>(1);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [submittedRef, setSubmittedRef] = useState<string | null>(null);
+  const [submittedId, setSubmittedId] = useState<string | null>(null);
 
   // Form state
   const [formData, setFormData] = useState({
@@ -66,6 +68,7 @@ export default function BookingModal({
 
   // Spec attached to the order: from the Calibrator or a saved buyer spec.
   const savedSpecs = useDB().specs;
+  const { session } = useSession();
   const listings = useDB().listings;
   const [listingId, setListingId] = useState<string | null>(null);
   // Company store listings that fit this booking; cheapest is picked unless the customer chooses.
@@ -79,7 +82,7 @@ export default function BookingModal({
       }),
     [listings, formData.serviceName, formData.portLocation, formData.inspectionDate, formData.commodity],
   );
-  const chosen = listingId === "" ? null : (matches.find((l) => l.id === listingId) ?? matches[0] ?? null);
+  const chosen = listingId === "" && !isRemote ? null : (matches.find((l) => l.id === listingId) ?? matches[0] ?? null);
   const [spec, setSpec] = useState<CommodityParams | null>(null);
   const [specName, setSpecName] = useState<string | null>(null);
   const [selectedSpecId, setSelectedSpecId] = useState("");
@@ -142,7 +145,7 @@ export default function BookingModal({
     }));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const buyer = checkParty({ name: parties.buyerName, gstin: parties.buyerGstin, iec: parties.buyerIec });
     const seller = checkParty({ name: parties.sellerName, gstin: parties.sellerGstin, iec: parties.sellerIec });
@@ -154,7 +157,7 @@ export default function BookingModal({
     if (problems.length) return;
 
     setIsSubmitting(true);
-    const order = createOrder({
+    const order = await run(createOrder({
       mode: bookingMode,
       service: formData.serviceName,
       commodity: formData.commodity,
@@ -171,13 +174,15 @@ export default function BookingModal({
           ? { inspectionCompany: chosen.companyName, priceUSD: listingNet(chosen), listingId: chosen.id }
           : { priceUSD: 650 }
         : {}),
-    });
+    }));
     setIsSubmitting(false);
-    setSubmittedRef(order.id);
+    if (!order) return;
+    setSubmittedRef(orderRef(order));
+    setSubmittedId(order.id);
   };
 
   const openChatroom = () => {
-    const id = submittedRef;
+    const id = submittedId;
     handleReset();
     if (id) {
       window.dispatchEvent(new CustomEvent("qualty:open-order", { detail: id }));
@@ -652,14 +657,16 @@ type="number"
                     <div style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-main)" }}>
                       {matches.length
                         ? `${matches.length} compan${matches.length === 1 ? "y has" : "ies have"} surveyors free at this port on this date`
-                        : "No company store matches this service, port and date yet"}
+                        : isRemote
+                          ? "No company has listed surveyors for this service, port and date yet. Raise an enquiry instead and companies will bid."
+                          : "No company store matches this service, port and date yet"}
                     </div>
                     {[...matches.map((l) => ({
                       id: l.id,
                       name: l.companyName,
                       detail: `${l.surveyors} surveyor(s) in ${l.location} · ${l.turnaroundDays} day turnaround${l.discountPct ? ` · ${l.discountPct}% off $${l.priceUSD.toLocaleString()}` : ""}`,
                       price: listingNet(l),
-                    })), { id: "", name: "Qualty partner surveyors", detail: "Standard rate, nearest certified surveyor we can dispatch", price: 650 }].map((opt) => {
+                    })), ...(isRemote ? [] : [{ id: "", name: "Qualty partner surveyors", detail: "Standard rate, nearest certified surveyor we can dispatch", price: 650 }])].map((opt) => {
                       const on = (chosen?.id ?? "") === opt.id;
                       return (
                         <label
@@ -757,6 +764,14 @@ rows={2}
             {/* Step 3: Your details and buyer/seller verification */}
             {step === 3 && (
               <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+                {isRemote && !session && (
+                  <div role="status" style={{ padding: "12px 14px", borderRadius: "10px", backgroundColor: "var(--warning-bg)", border: "1px solid var(--warning-border)", color: "var(--warning-text)", fontSize: "13px", display: "flex", flexWrap: "wrap", gap: "10px", alignItems: "center", justifyContent: "space-between" }}>
+                    <span>Sign in to book. Your order and its chatroom are saved to your account.</span>
+                    <button type="button" className="btn-primary" style={{ padding: "7px 14px", fontSize: "12.5px" }} onClick={() => window.dispatchEvent(new CustomEvent("qualty:open-auth"))}>
+                      Sign in
+                    </button>
+                  </div>
+                )}
                 {/* Buyer / Seller Verification */}
                 <fieldset style={{ border: "1px solid var(--border-main)", borderRadius: "10px", padding: "14px", display: "flex", flexDirection: "column", gap: "12px" }}>
                   <legend style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "13px", fontWeight: 600, color: "var(--text-main)", padding: "0 6px" }}>

@@ -76,6 +76,29 @@ Listens on port `3214`.
 
 ---
 
+## Backend (Supabase)
+
+Qualty has its own Supabase project (`efluggnkkjlrjnsbicyq`, free plan, Singapore). It is separate from
+CargoFirst's project and must stay that way.
+
+- **Schema:** `supabase/migrations/` (accounts, companies, team, KYC, store, orders, bids, invoices,
+  chat, evidence, certificates, compliance, storage buckets). Every table has row-level security.
+- **App:** `web/src/lib/store.ts` picks the store. With `NEXT_PUBLIC_SUPABASE_URL` and
+  `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` set it uses Supabase (`remote-store.ts`); without them it runs the
+  browser-only demo (`local-store.ts`), which is what CI tests.
+- **Types:** regenerate after a schema change with
+  `supabase gen types typescript --project-id efluggnkkjlrjnsbicyq --schema public > web/src/lib/database.types.ts`.
+- **Production:** add the two `NEXT_PUBLIC_SUPABASE_*` values to the Vercel project (Settings → Environment
+  Variables, Production and Preview), then redeploy. Values are in `web/.env.example` / the Supabase dashboard
+  (Project Settings → API Keys → publishable key).
+- **First admin:** sign up on qualty.ai, confirm the email, then run
+  `SUPABASE_SECRET_KEY=... node web/scripts/make-admin.mjs you@example.com`.
+- **Live test** (creates and deletes throwaway users; not in CI):
+  `cd web && npm run build && SUPABASE_SECRET_KEY=... npx playwright test -c playwright.live.config.ts`
+  (with the public keys in `web/.env.local`).
+- **Email:** Supabase's built-in mailer sends about 2 emails an hour. Add a custom SMTP provider
+  (e.g. Resend) under Authentication → Emails before real users sign up.
+
 ## Testing and CI/CD
 
 Run from `web/`:

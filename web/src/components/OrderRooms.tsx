@@ -31,6 +31,12 @@ import {
   setPartyVerified,
   describeSpec,
   getBlob,
+  useSession,
+  isRemote,
+  orderRef,
+  myCompanyIds,
+  type Session,
+  type TeamMember,
   type Role,
   type Order,
   type Bid,
@@ -39,6 +45,16 @@ import {
   type EvidenceRecord,
 } from "@/lib/store";
 import EvidenceMedia from "./EvidenceMedia";
+import { run } from "@/lib/notify";
+
+/** Your role in an order's room, from your account (mirrors chat_role_for in the database). */
+function roleIn(o: Order, session: Session | null, team: TeamMember[]): Role {
+  if (!session) return "customer";
+  if (session.appRole === "admin") return "admin";
+  if (o.customerId === session.userId) return "customer";
+  const m = team.find((t) => t.companyId === o.companyId && t.userId === session.userId && t.status === "active");
+  return m?.role === "inspector" ? "inspector" : "company";
+}
 
 type Composer = "message" | "observation" | "dispatch" | "media";
 
@@ -63,7 +79,8 @@ export default function OrderRooms({ onBook }: { onBook: () => void }) {
   const db = useDB();
   const orders = db.orders;
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [role, setRole] = useState<Role>("customer");
+  const [pickedRole, setRole] = useState<Role>("customer");
+  const { session, ready } = useSession();
 
   useEffect(() => {
     const open = (e: Event) => setActiveId((e as CustomEvent<string>).detail);
@@ -72,6 +89,8 @@ export default function OrderRooms({ onBook }: { onBook: () => void }) {
   }, []);
 
   const active = orders.find((o) => o.id === activeId) ?? orders[0] ?? null;
+  // On the backend your role in a room comes from your account; the demo lets you switch.
+  const role: Role = !isRemote || !active ? pickedRole : roleIn(active, session, db.team);
 
   return (
     <section id="orders" style={{ padding: "clamp(48px, 7vw, 80px) 20px", maxWidth: "1280px", margin: "0 auto" }}>
@@ -86,7 +105,20 @@ export default function OrderRooms({ onBook }: { onBook: () => void }) {
         </p>
       </div>
 
-      {orders.length === 0 ? (
+      {isRemote && !session ? (
+        <div className="card-shell" style={{ padding: "36px 28px", textAlign: "center" }}>
+          <ChatsCircle size={32} color="var(--accent-primary)" style={{ margin: "0 auto 12px" }} />
+          <p style={{ fontSize: "15px", fontWeight: 600, color: "var(--text-main)" }}>{ready ? "Sign in to see your orders" : "Checking your sign-in..."}</p>
+          <p style={{ fontSize: "13.5px", color: "var(--text-muted)", margin: "6px auto 18px", maxWidth: "420px" }}>
+            Your orders, bids and chatrooms are saved to your account and shared with the inspection company.
+          </p>
+          {ready && (
+            <button className="btn-primary" onClick={() => window.dispatchEvent(new CustomEvent("qualty:open-auth"))} style={{ padding: "10px 22px" }}>
+              Sign in
+            </button>
+          )}
+        </div>
+      ) : orders.length === 0 ? (
         <div className="card-shell" style={{ padding: "36px 28px", textAlign: "center" }}>
           <ChatsCircle size={32} color="var(--accent-primary)" style={{ margin: "0 auto 12px" }} />
           <p style={{ fontSize: "15px", fontWeight: 600, color: "var(--text-main)" }}>No orders yet</p>
@@ -119,7 +151,7 @@ export default function OrderRooms({ onBook }: { onBook: () => void }) {
                   }}
                 >
                   <div style={{ display: "flex", justifyContent: "space-between", gap: "8px" }}>
-                    <span className="font-mono" style={{ fontSize: "13px", fontWeight: 700, color: "var(--text-main)" }}>{o.id}</span>
+                    <span className="font-mono" style={{ fontSize: "13px", fontWeight: 700, color: "var(--text-main)" }}>{orderRef(o)}</span>
                     <span style={{ fontSize: "11.5px", color: o.status === "completed" ? "var(--success-text)" : "var(--text-muted)" }}>
                       {STATUS_LABEL[o.status]}
                     </span>
@@ -196,11 +228,14 @@ function Room({ order, role, setRole }: { order: Order; role: Role; setRole: (r:
       <header style={{ padding: "16px 20px", borderBottom: "1px solid var(--border-main)", display: "flex", flexDirection: "column", gap: "8px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
           <div>
-            <h3 className="font-mono" style={{ fontSize: "16px", fontWeight: 700, color: "var(--text-main)" }}>{order.id}</h3>
+            <h3 className="font-mono" style={{ fontSize: "16px", fontWeight: 700, color: "var(--text-main)" }}>{orderRef(order)}</h3>
             <p style={{ fontSize: "12.5px", color: "var(--text-secondary)" }}>
               {order.service} · {order.location} · {order.volumeTons.toLocaleString()} t · {order.inspectionDate}
             </p>
           </div>
+          {isRemote ? (
+            <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>You&apos;re in this room as {ROLE_LABEL[role]}</span>
+          ) : (
           <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px", color: "var(--text-muted)" }}>
             Viewing as
             <select value={role} onChange={(e) => setRole(e.target.value as Role)} style={field}>
@@ -211,12 +246,13 @@ function Room({ order, role, setRole }: { order: Order; role: Role; setRole: (r:
               ))}
             </select>
           </label>
+          )}
         </div>
         <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>
           Members: {order.members.map((m) => `${m.name} (${ROLE_LABEL[m.role]})`).join(", ")}
         </div>
-        <PartyLine label="Buyer" party={order.buyer} canVerify={role === "admin"} onVerify={() => setPartyVerified(order.id, "buyer")} />
-        <PartyLine label="Seller" party={order.seller} canVerify={role === "admin"} onVerify={() => setPartyVerified(order.id, "seller")} />
+        <PartyLine label="Buyer" party={order.buyer} canVerify={role === "admin"} onVerify={() => void run(setPartyVerified(order.id, "buyer"))} />
+        <PartyLine label="Seller" party={order.seller} canVerify={role === "admin"} onVerify={() => void run(setPartyVerified(order.id, "seller"))} />
         {order.spec && (
           <p style={{ fontSize: "12px", color: "var(--accent-text)" }}>
             Booked spec{order.specLabel ? ` (${order.specLabel})` : ""}: {describeSpec(order.spec)}
@@ -227,7 +263,7 @@ function Room({ order, role, setRole }: { order: Order; role: Role; setRole: (r:
       {order.mode === "inquiry" && <Bids order={order} role={role} />}
 
       {/* Thread */}
-      <div ref={threadRef} role="log" aria-label={`Chat for ${order.id}`} style={{ maxHeight: "460px", overflowY: "auto", padding: "16px 20px", display: "flex", flexDirection: "column", gap: "10px", backgroundColor: "var(--bg-subtle)" }}>
+      <div ref={threadRef} role="log" aria-label={`Chat for ${orderRef(order)}`} style={{ maxHeight: "460px", overflowY: "auto", padding: "16px 20px", display: "flex", flexDirection: "column", gap: "10px", backgroundColor: "var(--bg-subtle)" }}>
         {messages.map((m) => (
           <Message key={m.id} m={m} evidence={m.evidenceId ? evidenceById.get(m.evidenceId) : undefined} mine={m.role === role} />
         ))}
@@ -254,7 +290,7 @@ function Room({ order, role, setRole }: { order: Order; role: Role; setRole: (r:
               </label>
             ))}
           </div>
-          <button className="btn-primary" style={{ padding: "9px 18px", fontSize: "13px" }} onClick={() => completeInspection(order.id, checklist)}>
+          <button className="btn-primary" style={{ padding: "9px 18px", fontSize: "13px" }} onClick={() => void run(completeInspection(order.id, checklist))}>
             <CheckCircle size={16} weight="bold" /> Close inspection and write summary
           </button>
           <p style={{ fontSize: "11.5px", color: "var(--text-muted)", marginTop: "6px" }}>Unticked items are flagged as missing in the summary.</p>
@@ -308,7 +344,7 @@ function Message({ m, evidence, mine }: { m: ChatMessage; evidence?: EvidenceRec
         <pre className="font-mono" style={{ fontSize: "11.5px", whiteSpace: "pre-wrap", color: "var(--text-main)", margin: 0, lineHeight: 1.55 }}>
           {m.text}
         </pre>
-        <DownloadSummary id={m.evidenceId} text={m.text} name={`${m.orderId}-inspection-summary.txt`} />
+        <DownloadSummary id={m.evidenceId} text={m.text} name={evidence?.fileName ?? `${m.orderId}-inspection-summary.txt`} />
       </div>
     );
   }
@@ -408,13 +444,27 @@ function ComposerBar({ order, role, author, canReport }: { order: Order; role: R
     setFile(null);
   };
 
+  // Returns false and shows the reason when a save fails.
+  const save = async (p: Promise<void>) => {
+    try {
+      setBusy(true);
+      await p;
+      return true;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't send. Try again.");
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const send = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     const base = { orderId: order.id, role, author };
     if (mode === "message") {
       if (!text.trim()) return;
-      postMessage({ ...base, kind: "text", text: text.trim() });
+      if (!(await save(postMessage({ ...base, kind: "text", text: text.trim() })))) return;
     } else if (mode === "observation") {
       const r = Object.fromEntries(
         Object.entries(readings)
@@ -422,10 +472,10 @@ function ComposerBar({ order, role, author, canReport }: { order: Order; role: R
           .map(([k, v]) => [k, Number(v)]),
       );
       if (!text.trim() && Object.keys(r).length === 0) return setError("Write what you saw or enter at least one reading.");
-      postMessage({ ...base, kind: "observation", text: text.trim() || "Sample readings", readings: r });
+      if (!(await save(postMessage({ ...base, kind: "observation", text: text.trim() || "Sample readings", readings: r })))) return;
     } else if (mode === "dispatch") {
       if (!dispatch.vehicleNo.trim()) return setError("Enter the truck or container number.");
-      postMessage({
+      const ok = await save(postMessage({
         ...base,
         kind: "dispatch",
         text: text.trim() || `Dispatched ${dispatch.vehicleNo.trim().toUpperCase()}`,
@@ -435,14 +485,15 @@ function ComposerBar({ order, role, author, canReport }: { order: Order; role: R
           bags: Number(dispatch.bags) || 0,
           weightTons: Number(dispatch.weightTons) || 0,
         },
-      });
+      }));
+      if (!ok) return;
     } else {
       if (!file) return setError("Choose or take a photo or video.");
       setBusy(true);
       try {
         await addEvidence({ orderId: order.id, file, caption: text.trim(), author, role });
-      } catch {
-        setError("Could not save that file. Try a JPEG, PNG or MP4.");
+      } catch (err) {
+        setError(isRemote && err instanceof Error ? err.message : "Could not save that file. Try a JPEG, PNG or MP4.");
         setBusy(false);
         return;
       }
@@ -576,9 +627,9 @@ function BidActions({ order, bid, role }: { order: Order; bid: Bid; role: Role }
   };
   const apply = (e: React.FormEvent) => {
     e.preventDefault();
-    if (mode === "counter" && Number(value) > 0) counterBid(order.id, bid.id, isCompany ? "company" : "customer", Number(value), note);
-    if (mode === "discount" && Number(value) >= 0 && Number(value) < 100) discountBid(order.id, bid.id, Number(value));
-    if (mode === "follow") setFollowUp(order.id, bid.id, value);
+    if (mode === "counter" && Number(value) > 0) void run(counterBid(order.id, bid.id, isCompany ? "company" : "customer", Number(value), note));
+    if (mode === "discount" && Number(value) >= 0 && Number(value) < 100) void run(discountBid(order.id, bid.id, Number(value)));
+    if (mode === "follow") void run(setFollowUp(order.id, bid.id, value));
     close();
   };
   const link: React.CSSProperties = { fontSize: "12px", fontWeight: 600, color: "var(--accent-primary)", cursor: "pointer", background: "none", border: "none", padding: 0, textDecoration: "underline" };
@@ -592,7 +643,7 @@ function BidActions({ order, bid, role }: { order: Order; bid: Bid; role: Role }
           <>
             <button type="button" style={link} onClick={() => setMode(mode === "discount" ? null : "discount")}>Give a discount</button>
             <button type="button" style={link} onClick={() => setMode(mode === "follow" ? null : "follow")}>Set follow-up</button>
-            <button type="button" style={{ ...link, color: "var(--danger-text)" }} onClick={() => withdrawBid(order.id, bid.id)}>Withdraw</button>
+            <button type="button" style={{ ...link, color: "var(--danger-text)" }} onClick={() => void run(withdrawBid(order.id, bid.id))}>Withdraw</button>
           </>
         )}
       </div>
@@ -643,7 +694,8 @@ function Bids({ order, role }: { order: Order; role: Role }) {
           .sort((a, b) => Number(a.status === "withdrawn") - Number(b.status === "withdrawn") || bidNet(a) - bidNet(b))
           .map((b) => {
             const last = b.rounds?.[b.rounds.length - 1];
-            const negotiable = open && b.status === "open" && (role === "company" || role === "customer");
+            const mineBid = !isRemote || role !== "company" || myCompanyIds(["owner", "sales"]).includes(b.companyId ?? "");
+            const negotiable = open && b.status === "open" && (role === "company" || role === "customer") && mineBid;
             return (
               <div
                 key={b.id}
@@ -690,7 +742,7 @@ function Bids({ order, role }: { order: Order; role: Role }) {
                     <ShieldCheck size={14} weight="bold" /> Accepted
                   </span>
                 ) : open && role === "customer" && b.status === "open" ? (
-                  <button className="btn-primary" onClick={() => acceptBid(order.id, b.id)} style={{ padding: "7px 14px", fontSize: "12.5px" }}>
+                  <button className="btn-primary" onClick={() => void run(acceptBid(order.id, b.id))} style={{ padding: "7px 14px", fontSize: "12.5px" }}>
                     Accept bid
                   </button>
                 ) : null}
@@ -704,19 +756,21 @@ function Bids({ order, role }: { order: Order; role: Role }) {
           onSubmit={(e) => {
             e.preventDefault();
             const discount = Number(form.discount) || 0;
-            if (!form.company.trim() || !(Number(form.price) > 0) || discount < 0 || discount >= 100) return;
-            submitBid(order.id, {
+            if ((!isRemote && !form.company.trim()) || !(Number(form.price) > 0) || discount < 0 || discount >= 100) return;
+            void run(submitBid(order.id, {
               company: form.company.trim(),
               priceUSD: Number(form.price),
               days: Number(form.days) || 1,
               scope: form.scope.trim(),
               discountPct: discount || undefined,
-            });
+            }));
             setForm({ company: "", price: "", days: "", scope: "", discount: "" });
           }}
           style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: "8px" }}
         >
-          <input required aria-label="Your company" placeholder="Your company" value={form.company} onChange={(e) => setForm({ ...form, company: e.target.value })} style={field} />
+          {!isRemote && (
+            <input required aria-label="Your company" placeholder="Your company" value={form.company} onChange={(e) => setForm({ ...form, company: e.target.value })} style={field} />
+          )}
           <input required type="number" min={1} aria-label="Price in USD" placeholder="Price (USD)" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} style={field} />
           <input type="number" min={0} max={99} aria-label="Discount in percent" placeholder="Discount % (optional)" value={form.discount} onChange={(e) => setForm({ ...form, discount: e.target.value })} style={field} />
           <input type="number" min={1} aria-label="Days" placeholder="Days" value={form.days} onChange={(e) => setForm({ ...form, days: e.target.value })} style={field} />

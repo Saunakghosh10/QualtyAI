@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useState } from "react";
 import {
   Buildings,
   ClipboardText,
@@ -14,6 +14,9 @@ import {
 } from "@phosphor-icons/react";
 import {
   useDB,
+  useSession,
+  isRemote,
+  orderRef,
   SERVICES,
   createCompany,
   updateCompany,
@@ -57,6 +60,10 @@ import {
   type CertType,
   type CertCheck,
 } from "@/lib/store";
+import { run } from "@/lib/notify";
+
+/** Awaits a save that returns problems; a thrown error becomes one problem. */
+const problemsOf = async (p: Promise<string[]>) => (await run(p)) ?? ["Couldn't save. Check your connection and try again."];
 
 const field: React.CSSProperties = {
   padding: "8px 10px",
@@ -90,6 +97,8 @@ const linkBtn: React.CSSProperties = {
   padding: 0,
   textDecoration: "underline",
 };
+/** Orders assigned to this company: by id on the backend, by name in the demo. */
+const isOurs = (o: Order, c: Company) => (o.companyId !== undefined ? o.companyId === c.id : o.inspectionCompany === c.name);
 const usd = (n: number) => `$${n.toLocaleString()}`;
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -153,10 +162,20 @@ const openChatroom = (id: string) => {
 
 export default function CompanyConsole() {
   const db = useDB();
-  const company = db.companies[0] ?? null;
-  const team = useMemo(() => (company ? db.team.filter((m) => m.companyId === company.id) : []), [db.team, company]);
+  const { session, ready } = useSession();
+  const isAdmin = session?.appRole === "admin";
+  // On the backend you see the companies you belong to (admins see all); the demo has one.
+  const mine = isRemote
+    ? db.companies.filter((c) => isAdmin || db.team.some((m) => m.companyId === c.id && m.userId === session?.userId && m.status === "active"))
+    : db.companies.slice(0, 1);
+  const [companyId, setCompanyId] = useState<string | null>(null);
+  const company = mine.find((c) => c.id === companyId) ?? mine[0] ?? null;
+  const team = company ? db.team.filter((m) => m.companyId === company.id) : [];
   const [viewerId, setViewerId] = useState<string | null>(null);
-  const viewer = team.find((m) => m.id === viewerId) ?? team.find((m) => m.role === "owner") ?? null;
+  const me = isRemote ? team.find((m) => m.userId === session?.userId && m.status === "active") : null;
+  const viewer = isRemote
+    ? (me ?? (isAdmin ? ({ id: "admin", role: "owner", name: "Qualty admin" } as const) : null))
+    : (team.find((m) => m.id === viewerId) ?? team.find((m) => m.role === "owner") ?? null);
   const role: TeamRole = viewer?.role ?? "owner";
   const tabs = TABS.filter((t) => canAccess(role, t.area));
   const [tab, setTab] = useState<Area>("orders");
@@ -174,7 +193,18 @@ export default function CompanyConsole() {
         </p>
       </div>
 
-      {!company ? (
+      {isRemote && !session ? (
+        <div className="card-shell" style={{ padding: "24px", maxWidth: "760px", display: "flex", flexWrap: "wrap", gap: "12px", alignItems: "center", justifyContent: "space-between" }}>
+          <p style={{ fontSize: "14px", color: "var(--text-secondary)" }}>
+            {ready ? "Sign in to set up your company or open your team's console." : "Checking your sign-in..."}
+          </p>
+          {ready && (
+            <button className="btn-primary" style={{ padding: "9px 18px", fontSize: "13.5px" }} onClick={() => window.dispatchEvent(new CustomEvent("qualty:open-auth"))}>
+              Sign in or create an account
+            </button>
+          )}
+        </div>
+      ) : !company ? (
         <CompanySetup />
       ) : (
         <div className="card-shell" style={{ padding: 0, overflow: "hidden" }}>
@@ -188,6 +218,20 @@ export default function CompanyConsole() {
                 </div>
               </div>
             </div>
+            {isRemote ? (
+              <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap", fontSize: "12.5px", color: "var(--text-secondary)" }}>
+                {mine.length > 1 && (
+                  <select aria-label="Company" value={company.id} onChange={(e) => setCompanyId(e.target.value)} style={field}>
+                    {mine.map((c) => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                )}
+                <span>
+                  You: {me ? `${me.name} (${TEAM_ROLE_LABEL[me.role]})` : isAdmin ? "Qualty admin" : "not on this team"}
+                </span>
+              </div>
+            ) : (
             <label style={{ ...label, flexDirection: "row", alignItems: "center", gap: "6px", fontSize: "12px" }}>
               Signed in as
               <select value={viewer?.id ?? ""} onChange={(e) => setViewerId(e.target.value)} style={field}>
@@ -200,6 +244,7 @@ export default function CompanyConsole() {
                   ))}
               </select>
             </label>
+            )}
           </header>
           <div role="tablist" aria-label="Company console" style={{ display: "flex", gap: "4px", padding: "8px 12px", overflowX: "auto", borderBottom: "1px solid var(--border-main)", backgroundColor: "var(--bg-subtle)" }}>
             {tabs.map((t) => (
@@ -262,7 +307,7 @@ function CompanySetup() {
   const [f, setF] = useState({ name: "", owner: "", email: "", phone: "", address: "", gstin: "", pan: "" });
   const [problems, setProblems] = useState<string[]>([]);
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: e.target.value });
-  const submit = (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     const p: string[] = [];
     if (!f.name.trim()) p.push("Add the company name.");
@@ -270,7 +315,7 @@ function CompanySetup() {
     if (!f.email.trim() && !f.phone.trim()) p.push("Add an email or phone so customers can reach you.");
     setProblems(p);
     if (p.length) return;
-    createCompany({ name: f.name.trim(), email: f.email.trim(), phone: f.phone.trim(), address: f.address.trim(), gstin: f.gstin, pan: f.pan }, f.owner);
+    await run(createCompany({ name: f.name.trim(), email: f.email.trim(), phone: f.phone.trim(), address: f.address.trim(), gstin: f.gstin, pan: f.pan }, f.owner));
   };
   return (
     <form onSubmit={submit} className="card-shell" style={{ padding: "24px", maxWidth: "760px" }}>
@@ -304,7 +349,7 @@ const ORDER_STATUS: Record<Order["status"], [Tone, string]> = {
 
 function OrdersTab({ company }: { company: Company }) {
   const db = useDB();
-  const orders = db.orders.filter((o) => o.inspectionCompany === company.name);
+  const orders = db.orders.filter((o) => isOurs(o, company));
   const [filter, setFilter] = useState<Order["status"] | "all">("all");
   const shown = orders.filter((o) => filter === "all" || o.status === filter);
   return (
@@ -323,7 +368,7 @@ function OrdersTab({ company }: { company: Company }) {
           <div key={o.id} style={row}>
             <div>
               <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-                <span className="font-mono" style={{ fontSize: "13px", fontWeight: 700, color: "var(--text-main)" }}>{o.id}</span>
+                <span className="font-mono" style={{ fontSize: "13px", fontWeight: 700, color: "var(--text-main)" }}>{orderRef(o)}</span>
                 <Pill tone={ORDER_STATUS[o.status][0]}>{ORDER_STATUS[o.status][1]}</Pill>
               </div>
               <div style={{ fontSize: "12.5px", color: "var(--text-secondary)", marginTop: "2px" }}>
@@ -349,13 +394,13 @@ function EnquiriesTab({ company }: { company: Company }) {
         <Empty>No open enquiries right now.</Empty>
       ) : (
         open.map((o) => {
-          const mine = o.bids.find((b) => b.company === company.name && b.status === "open");
+          const mine = o.bids.find((b) => (b.companyId ? b.companyId === company.id : b.company === company.name) && b.status === "open");
           const lowest = Math.min(...o.bids.filter((b) => b.status === "open").map(bidNet));
           const last = mine?.rounds?.[mine.rounds.length - 1];
           return (
             <div key={o.id} style={row}>
               <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
-                <span className="font-mono" style={{ fontSize: "13px", fontWeight: 700, color: "var(--text-main)" }}>{o.id}</span>
+                <span className="font-mono" style={{ fontSize: "13px", fontWeight: 700, color: "var(--text-main)" }}>{orderRef(o)}</span>
                 <span style={{ fontSize: "12.5px", color: "var(--text-secondary)" }}>
                   {o.service} · {o.commodity} · {o.volumeTons.toLocaleString()} t · {o.location} · {o.inspectionDate}
                 </span>
@@ -413,9 +458,9 @@ function StoreTab({ company }: { company: Company }) {
     availableTo: f.availableTo,
     active: f.active,
   });
-  const submit = (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const p = saveListing({ ...toInput(), id: editId ?? undefined });
+    const p = await problemsOf(saveListing({ ...toInput(), id: editId ?? undefined }));
     setProblems(p);
     if (!p.length) {
       setF(blankListing());
@@ -486,7 +531,7 @@ function StoreTab({ company }: { company: Company }) {
             </div>
             <div style={{ display: "flex", gap: "12px" }}>
               <button style={linkBtn} onClick={() => edit(l)}>Edit</button>
-              <button style={{ ...linkBtn, color: "var(--danger-text)" }} onClick={() => deleteListing(l.id)}>Delete</button>
+              <button style={{ ...linkBtn, color: "var(--danger-text)" }} onClick={() => void run(deleteListing(l.id))}>Delete</button>
             </div>
           </div>
         ))
@@ -508,7 +553,7 @@ const METHODS: Payment["method"][] = ["Bank transfer", "UPI", "Card", "Letter of
 
 function PaymentsTab({ company }: { company: Company }) {
   const db = useDB();
-  const orders = db.orders.filter((o) => o.inspectionCompany === company.name && o.status !== "enquiry");
+  const orders = db.orders.filter((o) => isOurs(o, company) && o.status !== "enquiry");
   const totals = orders.reduce(
     (t, o) => {
       if (!o.invoice) return t;
@@ -553,7 +598,7 @@ function PaymentRow({ order }: { order: Order }) {
       <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", gap: "10px", alignItems: "center" }}>
         <div>
           <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-            <span className="font-mono" style={{ fontSize: "13px", fontWeight: 700, color: "var(--text-main)" }}>{order.id}</span>
+            <span className="font-mono" style={{ fontSize: "13px", fontWeight: 700, color: "var(--text-main)" }}>{orderRef(order)}</span>
             <Pill tone={PAY_STATUS[status][0]}>{PAY_STATUS[status][1]}</Pill>
           </div>
           <div style={{ fontSize: "12.5px", color: "var(--text-secondary)", marginTop: "2px" }}>
@@ -571,9 +616,9 @@ function PaymentRow({ order }: { order: Order }) {
       </div>
       {open && !i && (
         <form
-          onSubmit={(e) => {
+          onSubmit={async (e) => {
             e.preventDefault();
-            const p = raiseInvoice(order.id, { amountUSD: Number(inv.amount), discountPct: Number(inv.discount) || 0, dueOn: inv.due });
+            const p = await problemsOf(raiseInvoice(order.id, { amountUSD: Number(inv.amount), discountPct: Number(inv.discount) || 0, dueOn: inv.due }));
             setProblems(p);
             if (!p.length) setOpen(false);
           }}
@@ -587,9 +632,9 @@ function PaymentRow({ order }: { order: Order }) {
       )}
       {open && i && (
         <form
-          onSubmit={(e) => {
+          onSubmit={async (e) => {
             e.preventDefault();
-            const p = recordPayment(order.id, { amountUSD: Number(pay.amount), method: pay.method, reference: pay.reference.trim(), receivedOn: pay.on });
+            const p = await problemsOf(recordPayment(order.id, { amountUSD: Number(pay.amount), method: pay.method, reference: pay.reference.trim(), receivedOn: pay.on }));
             setProblems(p);
             if (!p.length) {
               setPay({ ...pay, amount: "", reference: "" });
@@ -629,7 +674,7 @@ function PaymentRow({ order }: { order: Order }) {
 function CertificatesTab({ company }: { company: Company }) {
   const db = useDB();
   const certs = db.certificates.filter((c) => c.companyId === company.id);
-  const completed = db.orders.filter((o) => o.inspectionCompany === company.name && o.status === "completed");
+  const completed = db.orders.filter((o) => isOurs(o, company) && o.status === "completed");
   const uncovered = uncoveredCertTypes(db.compliance, company.id);
   const [f, setF] = useState({ type: CERT_TYPES[0] as CertType, orderId: "", issuedTo: "", validUntil: "" });
   const [file, setFile] = useState<File | null>(null);
@@ -641,7 +686,7 @@ function CertificatesTab({ company }: { company: Company }) {
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
-    const r = await issueCertificate({ companyId: company.id, type: f.type, orderId: f.orderId || undefined, issuedTo: f.issuedTo, validUntil: f.validUntil || undefined, file });
+    const r = (await run(issueCertificate({ companyId: company.id, type: f.type, orderId: f.orderId || undefined, issuedTo: f.issuedTo, validUntil: f.validUntil || undefined, file }))) ?? { problems: ["Couldn't issue it. Try again."] };
     setBusy(false);
     setProblems(r.problems);
     if (!r.problems.length) {
@@ -669,7 +714,7 @@ function CertificatesTab({ company }: { company: Company }) {
               style={field}
             >
               <option value="">No order</option>
-              {completed.map((o) => <option key={o.id} value={o.id}>{o.id} · {o.commodity}</option>)}
+              {completed.map((o) => <option key={o.id} value={o.id}>{orderRef(o)} · {o.commodity}</option>)}
             </select>
           </label>
           <label style={label}>Issued to<input value={f.issuedTo} onChange={(e) => setF({ ...f, issuedTo: e.target.value })} style={field} /></label>
@@ -711,9 +756,9 @@ function CertificatesTab({ company }: { company: Company }) {
               {c.status === "issued" &&
                 (revoking === c.id ? (
                   <form
-                    onSubmit={(e) => {
+                    onSubmit={async (e) => {
                       e.preventDefault();
-                      if (!revokeCertificate(c.id, reason).length) {
+                      if (!(await problemsOf(revokeCertificate(c.id, reason))).length) {
                         setRevoking(null);
                         setReason("");
                       }
@@ -748,9 +793,9 @@ export function CertificateCheck() {
   };
   return (
     <form
-      onSubmit={(e) => {
+      onSubmit={async (e) => {
         e.preventDefault();
-        setRes(checkCertificate(code));
+        setRes((await run(checkCertificate(code))) ?? null);
       }}
       style={{ ...row, display: "block", backgroundColor: "var(--bg-subtle)" }}
     >
@@ -791,7 +836,7 @@ function ComplianceTab({ company }: { company: Company }) {
       <form
         onSubmit={async (e) => {
           e.preventDefault();
-          const p = await addCompliance({ companyId: company.id, ...f, file });
+          const p = await problemsOf(addCompliance({ companyId: company.id, ...f, file }));
           setProblems(p);
           if (!p.length) {
             setF({ name: "", issuedBy: "", reference: "", validUntil: "", covers: [] });
@@ -840,7 +885,7 @@ function ComplianceTab({ company }: { company: Company }) {
                   {c.covers.length > 0 && ` · covers ${c.covers.join(", ")}`}
                 </div>
               </div>
-              <button style={{ ...linkBtn, color: "var(--danger-text)" }} onClick={() => removeCompliance(c.id)}>Remove</button>
+              <button style={{ ...linkBtn, color: "var(--danger-text)" }} onClick={() => void run(removeCompliance(c.id))}>Remove</button>
             </div>
           );
         })
@@ -862,19 +907,22 @@ function KycTab({ company }: { company: Company }) {
     setError(null);
     try {
       await addKycDoc(company.id, type, file);
-    } catch {
-      setError("Couldn't save that file in this browser. Try a smaller PDF or image.");
+    } catch (e) {
+      setError(e instanceof Error && isRemote ? e.message : "Couldn't save that file. Try a smaller PDF or image (under 20 MB).");
     }
     setBusy(null);
   };
+  const { session } = useSession();
+  // Only Qualty admins review KYC on the backend; the demo shows the buttons so the flow can be tried.
+  const canReview = !isRemote || session?.appRole === "admin";
   const DOC: Record<"submitted" | "verified" | "rejected", [Tone, string]> = { submitted: ["warn", "Under review"], verified: ["good", "Verified"], rejected: ["bad", "Rejected"] };
 
   return (
     <Panel title="KYC and company profile" hint="Upload each document once. Qualty checks them before your listings are marked verified to customers. A new upload replaces the old one.">
       <form
-        onSubmit={(e) => {
+        onSubmit={async (e) => {
           e.preventDefault();
-          updateCompany(company.id, { ...p, gstin: p.gstin.trim().toUpperCase() || undefined, pan: p.pan.trim().toUpperCase() || undefined });
+          await run(updateCompany(company.id, { ...p, gstin: p.gstin.trim().toUpperCase() || undefined, pan: p.pan.trim().toUpperCase() || undefined }));
           setSaved(true);
         }}
         style={{ ...row, display: "block" }}
@@ -910,10 +958,10 @@ function KycTab({ company }: { company: Company }) {
               )}
             </div>
             <div style={{ display: "flex", gap: "12px", alignItems: "center", flexWrap: "wrap" }}>
-              {doc?.status === "submitted" && (
+              {doc?.status === "submitted" && canReview && (
                 <>
-                  <button style={linkBtn} title="Qualty admin action" onClick={() => reviewKycDoc(company.id, doc.id, "verified")}>Admin: verify</button>
-                  <button style={{ ...linkBtn, color: "var(--danger-text)" }} title="Qualty admin action" onClick={() => reviewKycDoc(company.id, doc.id, "rejected", "Unreadable, please upload again")}>Admin: reject</button>
+                  <button style={linkBtn} title="Qualty admin action" onClick={() => void run(reviewKycDoc(company.id, doc.id, "verified"))}>Admin: verify</button>
+                  <button style={{ ...linkBtn, color: "var(--danger-text)" }} title="Qualty admin action" onClick={() => void run(reviewKycDoc(company.id, doc.id, "rejected", "Unreadable, please upload again"))}>Admin: reject</button>
                 </>
               )}
               <label style={{ ...linkBtn, textDecoration: "none" }}>
@@ -941,11 +989,19 @@ function TeamTab({ company }: { company: Company }) {
   return (
     <Panel title="Team and roles" hint="Invite people by email or phone. Each role only sees the sections it needs. There's always at least one owner.">
       <form
-        onSubmit={(e) => {
+        onSubmit={async (e) => {
           e.preventDefault();
-          const p = inviteMember(company.id, f);
+          const p = await problemsOf(inviteMember(company.id, f));
           setProblems(p);
-          setSent(p.length ? null : `Invite sent to ${f.email || f.phone}.`);
+          setSent(
+            p.length
+              ? null
+              : !isRemote
+                ? `Invite sent to ${f.email || f.phone}.`
+                : f.email
+                  ? `Added. ${f.name} joins the team when they sign up at qualty.ai with ${f.email.trim().toLowerCase()}.`
+                  : "Added. Phone-only invites can't sign in yet, so add their email too.",
+          );
           if (!p.length) setF({ name: "", email: "", phone: "", role: f.role });
         }}
         style={{ ...row, display: "block" }}
@@ -979,13 +1035,13 @@ function TeamTab({ company }: { company: Company }) {
             <div style={{ fontSize: "12px", color: "var(--text-muted)", marginTop: "2px" }}>{[m.email, m.phone].filter(Boolean).join(" · ")}</div>
           </div>
           <div style={{ display: "flex", gap: "12px", alignItems: "center", flexWrap: "wrap" }}>
-            <select aria-label={`Role for ${m.name}`} value={m.role} onChange={(e) => setMemberRole(m.id, e.target.value as TeamRole)} style={field}>
+            <select aria-label={`Role for ${m.name}`} value={m.role} onChange={(e) => void run(setMemberRole(m.id, e.target.value as TeamRole))} style={field}>
               {ROLES.map((r) => <option key={r} value={r}>{TEAM_ROLE_LABEL[r]}</option>)}
             </select>
-            {m.status === "invited" && (
-              <button style={linkBtn} title="Stands in for the person accepting the invite" onClick={() => activateMember(m.id)}>Mark accepted</button>
+            {m.status === "invited" && !isRemote && (
+              <button style={linkBtn} title="Stands in for the person accepting the invite" onClick={() => void run(activateMember(m.id))}>Mark accepted</button>
             )}
-            <button style={{ ...linkBtn, color: "var(--danger-text)" }} onClick={() => removeMember(m.id)}>Remove</button>
+            <button style={{ ...linkBtn, color: "var(--danger-text)" }} onClick={() => void run(removeMember(m.id))}>Remove</button>
           </div>
         </div>
       ))}
