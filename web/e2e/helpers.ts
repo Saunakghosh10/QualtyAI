@@ -24,9 +24,25 @@ export async function bookFromCalibrator(
   return (await number.textContent())!;
 }
 
-export async function openRoom(page: Page) {
+export async function openRoom(page: Page, opts: { pay?: boolean } = {}) {
   await bookingDialog(page).getByRole("button", { name: "Open order chatroom" }).click();
   await expect(bookingDialog(page)).toBeHidden();
+  if (opts.pay !== false) await payIfDue(page);
+}
+
+/** Customer gives the payment reference, the company confirms it, and the chatroom opens. Leaves the view on Customer. */
+export async function payIfDue(page: Page) {
+  const room = orders(page);
+  const payment = room.getByRole("region", { name: "Payment" });
+  if (!(await payment.isVisible())) return;
+  await viewAs(page, "Customer");
+  await room.getByLabel("Payment reference").fill("UTR12345678");
+  await room.getByRole("button", { name: "I have paid" }).click();
+  await expect(room.getByText(/Waiting for them to confirm/)).toBeVisible();
+  await viewAs(page, "Inspection company");
+  await room.getByRole("button", { name: "Confirm payment received" }).click();
+  await expect(room.getByRole("log")).toBeVisible();
+  await viewAs(page, "Customer");
 }
 
 export async function viewAs(page: Page, role: "Customer" | "Inspection company" | "Inspector" | "Qualty admin") {

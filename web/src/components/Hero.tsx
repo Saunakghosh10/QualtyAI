@@ -8,6 +8,30 @@ interface HeroProps {
   onOpenInquiryBooking: () => void;
 }
 
+const STEPS = [
+  {
+    Icon: MapPin,
+    title: "Book or ask for bids",
+    body: "Pick the port, cargo and specs. Get a fixed quote or let inspection companies bid.",
+    bg: "var(--accent-light)",
+    fg: "var(--accent-primary)",
+  },
+  {
+    Icon: ShieldCheck,
+    title: "Watch it happen",
+    body: "The surveyor posts readings, photos and video to the order chatroom. Off spec readings get flagged.",
+    bg: "var(--warning-bg)",
+    fg: "var(--warning-text)",
+  },
+  {
+    Icon: CheckCircle,
+    title: "Get a checkable certificate",
+    body: "Anyone can verify it with its code, and the evidence stays in the vault.",
+    bg: "var(--success-bg)",
+    fg: "var(--success-text)",
+  },
+];
+
 export default function Hero({ onOpenQuickBooking, onOpenInquiryBooking }: HeroProps) {
   return (
     <section
@@ -38,7 +62,7 @@ export default function Hero({ onOpenQuickBooking, onOpenInquiryBooking }: HeroP
       />
 
       <div style={{ position: "relative", zIndex: 1, maxWidth: "880px" }}>
-        {/* Eyebrow Status Badge */}
+        {/* Eyebrow */}
         <div
           className="badge-pill"
           style={{
@@ -47,186 +71,117 @@ export default function Hero({ onOpenQuickBooking, onOpenInquiryBooking }: HeroP
             border: "1px solid var(--border-main)",
             boxShadow: "var(--shadow-sm)",
             marginBottom: "24px",
-            padding: "6px 14px",
+            padding: "6px 12px",
+            fontSize: "13px",
           }}
         >
-          <span className="status-indicator status-active" />
-          <span style={{ fontSize: "12px", fontWeight: 600 }}>
-            PHYSICAL CARGO INSPECTION & SURVEYOR DISPATCH PLATFORM
-          </span>
+          <span className="status-indicator status-active" aria-hidden="true" />
+          Surveyors on call at major Indian ports
         </div>
 
-        {/* H1 Main Headline */}
         <h1
           className="font-heading"
           style={{
-            fontSize: "clamp(2.4rem, 5.2vw, 4.2rem)",
+            fontSize: "clamp(40px, 6vw, 72px)",
             fontWeight: 700,
-            lineHeight: 1.1,
+            lineHeight: 1.04,
             color: "var(--text-main)",
             letterSpacing: "-0.035em",
-            marginBottom: "20px",
-            textWrap: "balance",
+            margin: "0 auto 20px",
+            maxWidth: "820px",
           }}
         >
-          Verified physical cargo quality for global commodity trade.
+          Know what is in the container before you pay for it.
         </h1>
 
-        {/* Readable Subtitle */}
         <p
           style={{
-            fontSize: "clamp(16px, 1.8vw, 19px)",
+            fontSize: "clamp(16px, 1.6vw, 18px)",
             lineHeight: 1.6,
             color: "var(--text-secondary)",
-            maxWidth: "700px",
-            margin: "0 auto 36px",
+            maxWidth: "620px",
+            margin: "0 auto 32px",
           }}
         >
-          Book accredited marine surveyors on-demand. Fast on-dock sampling, pre-shipment cargo grading, container stuffing surveys, and GPS-watermarked evidence vaults across major ports.
+          Book an accredited surveyor at the port. Sampling, grading and stuffing checks land in one shared
+          chatroom with GPS stamped photos, readings and a signed certificate.
         </p>
 
-        {/* Dual Booking Action Buttons */}
         <div
           style={{
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            gap: "14px",
+            gap: "12px",
             flexWrap: "wrap",
-            marginBottom: "56px",
           }}
         >
-          <button
-            onClick={onOpenQuickBooking}
-            className="btn-primary"
-            style={{ padding: "12px 24px", fontSize: "14.5px" }}
-          >
-            <Lightning size={17} weight="fill" />
-            <span>Quick Inspection (&lt; 5 Days)</span>
-            <ArrowRight size={15} weight="bold" />
+          <button onClick={onOpenQuickBooking} className="btn-primary" style={{ padding: "12px 22px", fontSize: "15px" }}>
+            <Lightning size={16} weight="fill" aria-hidden="true" />
+            <span>Book a quick inspection</span>
+            <ArrowRight size={15} weight="bold" aria-hidden="true" />
           </button>
 
-          <button
-            onClick={onOpenInquiryBooking}
-            className="btn-secondary"
-            style={{ padding: "12px 22px", fontSize: "14.5px" }}
-          >
-            <Gavel size={17} weight="bold" />
-            <span>Raise an Inquiry (&gt; 5 Days Bidding)</span>
+          <button onClick={onOpenInquiryBooking} className="btn-secondary" style={{ padding: "12px 22px", fontSize: "15px" }}>
+            <Gavel size={16} weight="bold" aria-hidden="true" />
+            <span>Raise an Inquiry for bids</span>
           </button>
-
-          <a href="#calibrator" className="btn-secondary" style={{ padding: "12px 20px", fontSize: "14.5px" }}>
-            <Sliders size={16} />
-            <span>Commodity Calibrator</span>
-          </a>
         </div>
 
-        {/* Stat Cards */}
-        <div
+        <p style={{ fontSize: "13px", color: "var(--text-muted)", margin: "16px auto 56px" }}>
+          Quick bookings go out within 5 days. Longer jobs get bids from several companies.{" "}
+          <a
+            href="#calibrator"
+            style={{ color: "var(--accent-primary)", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: "4px" }}
+          >
+            <Sliders size={13} aria-hidden="true" />
+            Set specs first
+          </a>
+        </p>
+
+        {/* How it works: three things the product really does */}
+        <ol
           style={{
+            listStyle: "none",
             display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-            gap: "16px",
+            gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+            gap: "12px",
             width: "100%",
             textAlign: "left",
           }}
         >
-          {/* Stat 1 */}
-          <div className="card-shell" style={{ padding: "20px 24px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "8px" }}>
+          {STEPS.map((step, i) => (
+            <li key={step.title} className="card-shell" style={{ padding: "20px", display: "flex", gap: "14px" }}>
               <div
+                aria-hidden="true"
                 style={{
-                  width: "28px",
-                  height: "28px",
-                  borderRadius: "6px",
-                  backgroundColor: "var(--accent-light)",
-                  color: "var(--accent-primary)",
+                  width: "36px",
+                  height: "36px",
+                  flex: "none",
+                  borderRadius: "10px",
+                  backgroundColor: step.bg,
+                  color: step.fg,
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
                 }}
               >
-                <ShieldCheck size={18} weight="bold" />
+                <step.Icon size={18} weight="bold" />
               </div>
-              <span style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-muted)" }}>
-                RAPID DISPATCH
-              </span>
-            </div>
-            <div
-              className="font-heading"
-              style={{ fontSize: "28px", fontWeight: 700, color: "var(--text-main)", lineHeight: 1.1 }}
-            >
-              &lt; 2 Hours
-            </div>
-            <div style={{ fontSize: "13px", color: "var(--text-secondary)", marginTop: "4px" }}>
-              Local surveyor mobilization at Mundra, Kakinada, JNPT, and Kandla
-            </div>
-          </div>
-
-          {/* Stat 2 */}
-          <div className="card-shell" style={{ padding: "20px 24px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "8px" }}>
-              <div
-                style={{
-                  width: "28px",
-                  height: "28px",
-                  borderRadius: "6px",
-                  backgroundColor: "var(--success-bg)",
-                  color: "var(--success)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                <CheckCircle size={18} weight="bold" />
+              <div>
+                <div style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-muted)", marginBottom: "2px" }}>
+                  Step {i + 1}
+                </div>
+                <div style={{ fontSize: "16px", fontWeight: 600, color: "var(--text-main)", lineHeight: 1.3 }}>
+                  {step.title}
+                </div>
+                <div style={{ fontSize: "14px", color: "var(--text-secondary)", marginTop: "4px", lineHeight: 1.5 }}>
+                  {step.body}
+                </div>
               </div>
-              <span style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-muted)" }}>
-                QUALITY VAULT
-              </span>
-            </div>
-            <div
-              className="font-heading"
-              style={{ fontSize: "28px", fontWeight: 700, color: "var(--text-main)", lineHeight: 1.1 }}
-            >
-              Watermarked GPS
-            </div>
-            <div style={{ fontSize: "13px", color: "var(--text-secondary)", marginTop: "4px" }}>
-              Timestamped digital evidence protecting against 30-90 day transit claims
-            </div>
-          </div>
-
-          {/* Stat 3 */}
-          <div className="card-shell" style={{ padding: "20px 24px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "8px" }}>
-              <div
-                style={{
-                  width: "28px",
-                  height: "28px",
-                  borderRadius: "6px",
-                  backgroundColor: "var(--bg-subtle)",
-                  color: "var(--text-secondary)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                <MapPin size={18} weight="bold" />
-              </div>
-              <span style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-muted)" }}>
-                PORT DIRECTORY
-              </span>
-            </div>
-            <div
-              className="font-heading"
-              style={{ fontSize: "28px", fontWeight: 700, color: "var(--text-main)", lineHeight: 1.1 }}
-            >
-              12+ Global Hubs
-            </div>
-            <div style={{ fontSize: "13px", color: "var(--text-secondary)", marginTop: "4px" }}>
-              Accredited surveyors active in domestic Indian ports and overseas corridors
-            </div>
-          </div>
-        </div>
+            </li>
+          ))}
+        </ol>
       </div>
     </section>
   );

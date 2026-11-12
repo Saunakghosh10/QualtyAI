@@ -115,8 +115,33 @@ test("company, quick booking, inspection, payments, certificates and negotiation
   const croom = roomOf(customer);
   await expect(croom.getByRole("heading", { name: ref })).toBeVisible();
   await expect(croom.getByText(`Members: E2E customer (Customer), ${COMPANY} (Inspection company), Qualty admin team`)).toBeVisible();
-  await expect(croom.getByText("Order booked. Chatroom opened.")).toBeVisible();
   await expect(croom.getByText("You're in this room as Customer")).toBeVisible();
+
+  // ---- Pay to open the room: invoice is automatic, customer gives the reference, owner confirms ----
+  await expect(croom.getByRole("heading", { name: "Waiting for payment" })).toBeVisible();
+  await expect(croom.getByRole("log")).toHaveCount(0);
+  await croom.getByLabel("Payment reference").fill("UTR-E2E-0001");
+  await croom.getByRole("button", { name: "I have paid" }).click();
+  await expect(croom.getByText(/Waiting for them to confirm/)).toBeVisible();
+
+  await owner.reload();
+  await oc.getByRole("tab", { name: "Orders" }).click();
+  await expect(oc.getByText(ref)).toBeVisible();
+  await expect(oc.getByText("Customer says paid (ref UTR-E2E-0001)")).toBeVisible();
+  await oc.getByRole("tab", { name: "Payments" }).click();
+  await expect(oc.getByText("Unpaid")).toBeVisible();
+  await oc.getByRole("button", { name: "Record payment" }).click();
+  await oc.getByLabel("Amount (USD)").fill("700");
+  await oc.getByRole("button", { name: "Record payment" }).click();
+  await expect(oc.getByRole("alert")).toHaveText("Only $600 is left to pay on this invoice.");
+  await oc.getByLabel("Amount (USD)").fill("600");
+  await oc.getByRole("button", { name: "Record payment" }).click();
+  await expect(oc.getByText("Paid", { exact: true })).toBeVisible();
+
+  await customer.reload();
+  await customer.locator("#orders nav").getByRole("button", { name: new RegExp(ref) }).click();
+  await expect(croom.getByText(/^Payment confirmed\. Chatroom opened/)).toBeVisible();
+  await expect(croom.getByText("Order booked. Invoice sent; the chatroom opens once payment is confirmed.")).toBeVisible();
   // Customers can't post inspection reports.
   await expect(croom.getByRole("tab", { name: "Observation" })).toHaveCount(0);
 
@@ -149,20 +174,8 @@ test("company, quick booking, inspection, payments, certificates and negotiation
   await expect(croom.getByRole("log").getByRole("img", { name: "Seal photo hold 3" })).toBeVisible();
   await expect(customer.locator("#vault").getByText("Seal photo hold 3")).toBeVisible();
 
-  // ---- Owner invoices, records payment and issues a certificate ----
+  // ---- Owner issues a certificate ----
   await owner.reload();
-  await oc.getByRole("tab", { name: "Orders" }).click();
-  await expect(oc.getByText(ref)).toBeVisible();
-  await oc.getByRole("tab", { name: "Payments" }).click();
-  await oc.getByRole("button", { name: "Raise invoice" }).click();
-  await expect(oc.getByLabel("Amount (USD)")).toHaveValue("600");
-  await oc.getByLabel("Due on").fill("2099-01-01");
-  await oc.getByRole("button", { name: "Raise invoice" }).click();
-  await expect(oc.getByText("Unpaid")).toBeVisible();
-  await oc.getByRole("button", { name: "Record payment" }).click();
-  await oc.getByLabel("Amount (USD)").fill("600");
-  await oc.getByRole("button", { name: "Record payment" }).click();
-  await expect(oc.getByText("Paid", { exact: true })).toBeVisible();
 
   await oc.getByRole("tab", { name: "Certificates" }).click();
   await oc.getByLabel("Type").selectOption("Certificate of quality");
@@ -174,10 +187,14 @@ test("company, quick booking, inspection, payments, certificates and negotiation
   await oc.getByRole("button", { name: "Check", exact: true }).click();
   await expect(oc.getByRole("status")).toContainText(`${certNumber}, issued by ${COMPANY}`);
 
-  // Anyone, even signed out, can check the code through the public function.
+  // Anyone, even signed out, can check the code and browse the service store.
   const anon = createClient(url, publishable, { auth: { persistSession: false } });
   const { data: check } = await anon.rpc("verify_certificate", { code });
   expect(check?.[0]?.number).toBe(certNumber);
+  const { data: store } = await anon.rpc("browse_listings");
+  expect(store?.some((l: { company_name: string; price_usd: number }) => l.company_name === COMPANY && Number(l.price_usd) === 800)).toBe(true);
+  const { data: anonOrders } = await anon.from("orders").select("id");
+  expect(anonOrders ?? []).toEqual([]);
 
   // ---- Enquiry: bid with discount, counter-offer, accept at the net price ----
   await customer.getByRole("button", { name: "Book Inspection with These Specs" }).click();
@@ -196,9 +213,21 @@ test("company, quick booking, inspection, payments, certificates and negotiation
   const oroom = roomOf(owner);
   await expect(oroom.getByRole("heading", { name: enquiry })).toBeVisible();
   await expect(oroom.getByLabel("Your company")).toHaveCount(0);
+  // Bidding companies see the job, never the buyer, seller or customer.
+  await expect(oroom.getByText("Buyer, seller and customer details are shared only with the company whose bid is accepted.")).toBeVisible();
+  await expect(oroom.getByText("Al-Khaleej Foods")).toHaveCount(0);
+  const asOwner = createClient(url, publishable, { auth: { persistSession: false } });
+  await asOwner.auth.signInWithPassword({ email: email("owner"), password: PASSWORD });
+  const { data: leaked } = await asOwner.from("orders").select("buyer_name").eq("mode", "inquiry");
+  expect(leaked).toEqual([]);
+  const { data: jobs } = await asOwner.rpc("open_enquiries");
+  expect(jobs?.length).toBeGreaterThan(0);
+  expect(Object.keys(jobs![0])).not.toContain("buyer_name");
   await oroom.getByLabel("Price in USD").fill("2000");
   await oroom.getByLabel("Days").fill("3");
+  await oroom.getByLabel("Proposed inspection date").fill("2026-11-20");
   await oroom.getByRole("button", { name: "Submit bid" }).click();
+  await expect(oroom.getByText(/inspects 2026-11-20/)).toBeVisible();
   await expect(oroom.getByText(COMPANY, { exact: true }).first()).toBeVisible();
 
   await customer.reload();
@@ -218,10 +247,27 @@ test("company, quick booking, inspection, payments, certificates and negotiation
   await customer.reload();
   await customer.locator("#orders nav").getByRole("button", { name: new RegExp(enquiry) }).click();
   await croom.getByRole("button", { name: "Accept bid" }).click();
-  await expect(croom.getByText("Bid accepted. Order booked and chatroom opened.")).toBeVisible();
+  await expect(croom.getByRole("heading", { name: "Waiting for payment" })).toBeVisible();
+  await croom.getByLabel("Payment reference").fill("UTR-E2E-0002");
+  await croom.getByRole("button", { name: "I have paid" }).click();
+
+  // Now the winning company can read the parties, and confirms the payment from the order.
+  await owner.reload();
+  await owner.locator("#orders nav").getByRole("button", { name: new RegExp(enquiry) }).click();
+  await expect(oroom.getByText(/Al-Khaleej Foods/).first()).toBeVisible();
+  await expect(oroom.getByText(/ref UTR-E2E-0002/)).toBeVisible();
+  await oroom.getByRole("button", { name: "Confirm payment received" }).click();
+  await expect(oroom.getByText("Bid accepted. Invoice sent; the chatroom opens once payment is confirmed.")).toBeVisible();
 
   const { data: booked } = await admin.from("orders").select("status, price_usd").eq("customer_id", customerId).eq("mode", "inquiry").single();
   expect(booked).toMatchObject({ status: "booked", price_usd: 1800 });
+  const { data: inv } = await admin.from("invoices").select("amount_usd, orders!inner(customer_id, mode)").eq("orders.customer_id", customerId).eq("orders.mode", "inquiry").single();
+  expect(Number(inv?.amount_usd)).toBe(1800);
+
+  // A customer can't mark their own order paid.
+  const { error: payErr } = await createClient(url, publishable, { auth: { persistSession: false } })
+    .rpc("mark_payment_sent", { oid: "00000000-0000-0000-0000-000000000000", ref: "anon" });
+  expect(payErr).not.toBeNull();
 
   // ---- The database refuses what the screens hide ----
   const asCustomer = createClient(url, publishable, { auth: { persistSession: false } });

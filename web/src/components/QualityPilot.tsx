@@ -69,7 +69,7 @@ Certified by Qualty.AI Mobile Field Co-Pilot`;
     <section
       id="pilot"
       style={{
-        padding: "clamp(48px, 7vw, 80px) 20px",
+        padding: "clamp(40px, 5vw, 64px) 20px",
         maxWidth: "1280px",
         margin: "0 auto",
       }}
@@ -86,7 +86,7 @@ Certified by Qualty.AI Mobile Field Co-Pilot`;
           }}
         >
           <Compass size={13} weight="bold" />
-          <span>SECTION 04 / SURVEYOR FIELD CO-PILOT</span>
+          <span>Field co-pilot preview</span>
         </div>
         <h2
           className="font-heading"

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { bookFromCalibrator, bookingDialog, openRoom, orders, viewAs } from "./helpers";
+import { bookFromCalibrator, bookingDialog, openRoom, orders, payIfDue, viewAs } from "./helpers";
 
 const console_ = (page: Page) => page.locator("#company");
 const tab = (page: Page, name: string) => console_(page).getByRole("tab", { name }).click();
@@ -44,18 +44,19 @@ test("company store listing is offered in quick booking and drives invoice and p
   await dialog.getByLabel("Seller", { exact: true }).fill("Punjab Rice Mills");
   await dialog.getByRole("button", { name: "Book inspection" }).click();
   const id = (await dialog.getByText(/^QI-\d{4}-\d{4}$/).textContent())!;
-  await openRoom(page);
+  await openRoom(page, { pay: false });
   await expect(orders(page).getByText(/Members: .*Acme Surveyors \(Inspection company\)/)).toBeVisible();
+  // Booked orders are invoiced at the agreed price; the chatroom stays shut until it is paid.
+  await expect(orders(page).getByRole("heading", { name: "Waiting for payment" })).toBeVisible();
+  await expect(orders(page).getByRole("log")).toHaveCount(0);
 
   await tab(page, "Orders");
   await expect(c.getByText(id)).toBeVisible();
+  await expect(c.getByText("Waiting for payment")).toBeVisible();
 
   await tab(page, "Payments");
-  await c.getByRole("button", { name: "Raise invoice" }).click();
-  await expect(c.getByLabel("Amount (USD)")).toHaveValue("600");
-  await c.getByLabel("Due on").fill("2099-01-01");
-  await c.getByRole("button", { name: "Raise invoice" }).click();
   await expect(c.getByText("Unpaid")).toBeVisible();
+  await expect(c.getByText(/INV-.* \$0 of \$600 paid/)).toBeVisible();
 
   await c.getByRole("button", { name: "Record payment" }).click();
   await c.getByLabel("Amount (USD)").fill("700");
@@ -64,6 +65,8 @@ test("company store listing is offered in quick booking and drives invoice and p
   await c.getByLabel("Amount (USD)").fill("600");
   await c.getByRole("button", { name: "Record payment" }).click();
   await expect(c.getByText("Paid", { exact: true })).toBeVisible();
+  await expect(orders(page).getByRole("log")).toBeVisible();
+  await expect(orders(page).getByText(/Payment confirmed\. Chatroom opened/)).toBeVisible();
 });
 
 test("enquiry negotiation: discount, counter-offer, accept at the net price", async ({ page }) => {
@@ -90,7 +93,8 @@ test("enquiry negotiation: discount, counter-offer, accept at the net price", as
 
   await viewAs(page, "Customer");
   await room.getByRole("button", { name: "Accept bid" }).click();
-  await expect(room.getByText(`Customer accepted Acme's bid of $1,800. Acme joined the chatroom.`)).toBeVisible();
+  await payIfDue(page);
+  await expect(room.getByText(/^Customer accepted Acme's bid of \$1,800\./)).toBeVisible();
   expect(id).toMatch(/^RI-/);
 });
 
@@ -149,4 +153,33 @@ test("team invites and role-based access", async ({ page }) => {
   await c.getByLabel("Signed in as").selectOption({ label: "Ravi (Owner)" });
   await tab(page, "KYC");
   await expect(c.getByText("Missing")).toHaveCount(4);
+});
+
+test("service store: pick a service and port, compare companies, book one", async ({ page }) => {
+  await setUpCompany(page);
+  const c = console_(page);
+  await tab(page, "Service store");
+  await c.getByLabel("Port or city").fill("Kandla");
+  await c.getByLabel("Price (USD)").fill("900");
+  await c.getByLabel("Available from").fill("2026-11-01");
+  await c.getByLabel("Available until").fill("2099-12-31");
+  await c.getByRole("button", { name: "Add listing" }).click();
+
+  const store = page.locator("#services");
+  await expect(store.getByRole("radio", { name: /Pre-Shipment Inspection/ })).toHaveAttribute("aria-checked", "true");
+  await store.getByLabel("Port or city").selectOption("Kandla");
+  await expect(store.getByText("$900")).toBeVisible();
+  await store.getByRole("button", { name: "Book Acme Surveyors for Pre-Shipment Inspection (PSI) at Kandla" }).click();
+
+  const dialog = bookingDialog(page);
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: "Next: Schedule & Budget" }).click();
+  await expect(dialog.getByRole("radio", { name: /Acme Surveyors/ })).toBeChecked();
+
+  // Another service with no listings offers an enquiry instead.
+  await page.keyboard.press("Escape");
+  await store.getByRole("radio", { name: /Destination Cargo Inspection/ }).click();
+  await expect(store.getByText(/No company lists Destination Cargo Inspection/)).toBeVisible();
+  await store.getByRole("button", { name: "Raise an enquiry" }).click();
+  await expect(dialog).toBeVisible();
 });

@@ -23,12 +23,15 @@ describe("store facade (demo mode)", () => {
       inspectionDate: "2026-11-05",
       volumeTons: 100,
       customerName: "C",
+      priceUSD: 650,
     });
     expect(p).toBeInstanceOf(Promise);
     const o = await p;
     expect(S.orderRef(o)).toMatch(/^QI-\d{4}-0001$/);
     expect(await S.inviteMember("nope", { name: "", role: "ops" })).toContain("Add the person's name.");
     expect((await S.checkCertificate("NOPE")).result).toBe("not-found");
+    // The chatroom opens once the invoice is paid.
+    await S.recordPayment(o.id, { amountUSD: 650, method: "UPI", reference: "UTR1", receivedOn: "2026-11-01" });
     await S.postMessage({ orderId: o.id, kind: "text", role: "customer", author: "C", text: "hi" });
     expect(JSON.parse(localStorage.getItem("qualty_store_v1")!).messages.some((m: { text: string }) => m.text === "hi")).toBe(true);
   });

@@ -55,6 +55,7 @@ export const saveListing = pick(L.saveListing, R.saveListing);
 export const deleteListing = pick(L.deleteListing, R.deleteListing);
 export const raiseInvoice = pick(L.raiseInvoice, R.raiseInvoice);
 export const recordPayment = pick(L.recordPayment, R.recordPayment);
+export const markPaymentSent = pick(L.markPaymentSent, R.markPaymentSent);
 
 export const issueCertificate = isRemote ? R.issueCertificate : L.issueCertificate;
 export const revokeCertificate = pick(L.revokeCertificate, R.revokeCertificate);

@@ -25,7 +25,10 @@ export default function AccountModal() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    const on = () => {
+    const on = (e: Event) => {
+      const d = (e as CustomEvent<{ mode?: "signin" | "signup"; as?: "customer" | "company" } | null>).detail;
+      if (d?.mode) setMode(d.mode);
+      if (d?.as) setF((prev) => ({ ...prev, asCompany: d.as === "company" }));
       setOpen(true);
       setError(null);
       setNotice(null);
@@ -71,7 +74,7 @@ export default function AccountModal() {
   return (
     <div
       onClick={() => setOpen(false)}
-      style={{ position: "fixed", inset: 0, zIndex: 90, backgroundColor: "var(--modal-backdrop)", display: "flex", alignItems: "center", justifyContent: "center", padding: "16px" }}
+      style={{ position: "fixed", inset: 0, zIndex: 120, backgroundColor: "var(--modal-backdrop)", display: "flex", alignItems: "center", justifyContent: "center", padding: "16px" }}
     >
       <div
         role="dialog"
@@ -83,7 +86,7 @@ export default function AccountModal() {
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
           <h2 id="account-title" className="font-heading" style={{ fontSize: "20px", fontWeight: 700, color: "var(--text-main)" }}>
-            {mode === "signin" ? "Sign in to Qualty" : "Create your account"}
+            {mode === "signin" ? "Sign in to Qualty" : f.asCompany ? "Create a company account" : "Create a customer account"}
           </h2>
           <button aria-label="Close" onClick={() => setOpen(false)} style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer" }}>
             <X size={18} />
@@ -91,10 +94,46 @@ export default function AccountModal() {
         </div>
         <p style={{ fontSize: "13px", color: "var(--text-secondary)", marginBottom: "16px" }}>
           {mode === "signin"
-            ? "Your orders, chatrooms and company console are saved to your account."
-            : "Invited to a company's team? Use the email you were invited with and you'll join it automatically."}
+            ? "Customers and inspection companies sign in here. You land on your own orders or your company console."
+            : f.asCompany
+              ? "List your services and prices, bid on enquiries and run your team. Invited to a team? Use the email you were invited with."
+              : "Book inspections, compare companies and follow the inspection in a private chatroom with the company you book."}
         </p>
         <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+          {mode === "signup" && (
+            <fieldset style={{ border: "none", padding: 0, margin: 0, display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+              <legend style={{ fontSize: "12.5px", color: "var(--text-secondary)", marginBottom: "6px" }}>I am</legend>
+              {([
+                [false, "Booking inspections", "Exporter, importer or trader"],
+                [true, "An inspection company", "Surveyors and labs"],
+              ] as const).map(([asCompany, title, sub]) => (
+                <label
+                  key={title}
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "flex-start",
+                    gap: "2px",
+                    padding: "10px 12px",
+                    borderRadius: "10px",
+                    cursor: "pointer",
+                    border: `1px solid ${f.asCompany === asCompany ? "var(--accent-primary)" : "var(--border-main)"}`,
+                    backgroundColor: f.asCompany === asCompany ? "var(--accent-light)" : "var(--bg-card)",
+                  }}
+                >
+                  <input
+                    type="radio"
+                    name="account-type"
+                    checked={f.asCompany === asCompany}
+                    onChange={() => setF({ ...f, asCompany })}
+                    style={{ accentColor: "var(--accent-primary)", margin: "0 0 4px" }}
+                  />
+                  <span style={{ fontSize: "13.5px", fontWeight: 600, color: "var(--text-main)" }}>{title}</span>
+                  <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>{sub}</span>
+                </label>
+              ))}
+            </fieldset>
+          )}
           {mode === "signup" && (
             <label style={label}>
               Your name
@@ -116,12 +155,6 @@ export default function AccountModal() {
               style={field}
             />
           </label>
-          {mode === "signup" && (
-            <label style={{ display: "flex", gap: "8px", alignItems: "center", fontSize: "13px", color: "var(--text-secondary)" }}>
-              <input type="checkbox" checked={f.asCompany} onChange={(e) => setF({ ...f, asCompany: e.target.checked })} />
-              I run an inspection company
-            </label>
-          )}
           {error && (
             <p role="alert" style={{ fontSize: "13px", color: "var(--danger-text)" }}>
               {error}

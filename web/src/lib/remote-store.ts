@@ -86,7 +86,7 @@ const set = (patch: Partial<Cache>) => {
 
 // ---------- Mapping rows to the app's types ----------
 
-const ref = (o: Row<"orders">) => `${o.mode === "quick" ? "QI" : "RI"}-${o.created_at.slice(0, 4)}-${o.id.slice(0, 6).toUpperCase()}`;
+const ref = (o: Pick<Row<"orders">, "id" | "mode" | "created_at">) => `${o.mode === "quick" ? "QI" : "RI"}-${o.created_at.slice(0, 4)}-${o.id.slice(0, 6).toUpperCase()}`;
 
 function mapAll(r: {
   orders: Row<"orders">[];
@@ -103,6 +103,7 @@ function mapAll(r: {
   certs: Row<"certificates">[];
   compliance: Row<"compliance_items">[];
   specs: Row<"saved_specs">[];
+  enquiries?: Enquiry[];
   session: Session | null;
 }): DB {
   const companyName = new Map(r.companies.map((c) => [c.id, c.name]));
@@ -157,6 +158,7 @@ function mapAll(r: {
           discountPct: Number(b.discount_pct) || undefined,
           rounds: roundsByBid.get(b.id) ?? [],
           followUpOn: b.follow_up_on ?? undefined,
+          proposedDate: b.proposed_date ?? undefined,
         }));
       return {
         id: o.id,
@@ -186,8 +188,55 @@ function mapAll(r: {
         priceUSD: o.price_usd === null ? undefined : Number(o.price_usd),
         listingId: o.listing_id ?? undefined,
         invoice: invoiceByOrder.get(o.id),
+        budgetUSD: o.budget_usd === null ? undefined : Number(o.budget_usd),
+        paidAt: o.paid_at ?? undefined,
+        paymentRef: o.payment_ref ?? undefined,
+        paymentSentOn: o.payment_sent_on ?? undefined,
       };
     });
+
+  // Open enquiries other customers raised: the job only. Buyer, seller and customer stay private.
+  const known = new Set(orders.map((o) => o.id));
+  const hidden: Party = { name: "Shared after booking", verification: "unverified" };
+  for (const e of r.enquiries ?? []) {
+    if (known.has(e.id)) continue;
+    orders.push({
+      id: e.id,
+      ref: ref({ id: e.id, mode: "inquiry", created_at: e.created_at }),
+      companyId: null,
+      mode: "inquiry",
+      service: e.service,
+      commodity: e.commodity,
+      spec: (e.spec as unknown as CommodityParams | null) ?? null,
+      specLabel: e.spec_label,
+      buyer: hidden,
+      seller: hidden,
+      location: e.location,
+      inspectionDate: e.inspection_date,
+      volumeTons: Number(e.volume_tons),
+      status: "enquiry",
+      inspectionCompany: null,
+      members: [],
+      bids: r.bids
+        .filter((b) => b.order_id === e.id)
+        .map((b) => ({
+          id: b.id,
+          companyId: b.company_id,
+          company: companyName.get(b.company_id) ?? "Inspection company",
+          priceUSD: Number(b.price_usd),
+          days: b.days,
+          scope: b.scope,
+          createdAt: b.created_at,
+          status: b.status,
+          discountPct: Number(b.discount_pct) || undefined,
+          rounds: roundsByBid.get(b.id) ?? [],
+          followUpOn: b.follow_up_on ?? undefined,
+          proposedDate: b.proposed_date ?? undefined,
+        })),
+      createdAt: e.created_at,
+      budgetUSD: e.budget_usd === null ? undefined : Number(e.budget_usd),
+    });
+  }
 
   const evidence: EvidenceRecord[] = r.evidence.map((e) => ({
     id: e.id,
@@ -338,6 +387,49 @@ async function all<T extends keyof Tables>(table: T): Promise<Row<T>[]> {
   return (data ?? []) as unknown as Row<T>[];
 }
 
+type Enquiry = {
+  id: string;
+  service: string;
+  commodity: string;
+  spec: unknown;
+  spec_label: string | null;
+  location: string;
+  inspection_date: string;
+  volume_tons: number;
+  budget_usd: number | null;
+  created_at: string;
+};
+
+/** Enquiries this user's company can bid on (job details only). Empty for customers. */
+async function openEnquiries(): Promise<Enquiry[]> {
+  const { data, error } = await sb().rpc("open_enquiries");
+  return error ? [] : ((data ?? []) as Enquiry[]);
+}
+
+async function publicListings(): Promise<ServiceListing[]> {
+  const { data, error } = await sb().rpc("browse_listings");
+  if (error) return [];
+  return (data ?? []).map(
+    (l): ServiceListing => ({
+      id: l.id,
+      companyId: l.company_id,
+      companyName: l.company_name,
+      companyVerified: l.company_verified,
+      service: l.service,
+      commodities: l.commodities,
+      location: l.location,
+      priceUSD: Number(l.price_usd),
+      discountPct: Number(l.discount_pct),
+      turnaroundDays: l.turnaround_days,
+      surveyors: l.surveyors,
+      availableFrom: l.available_from,
+      availableTo: l.available_to,
+      active: true,
+      createdAt: l.created_at,
+    }),
+  );
+}
+
 let loading: Promise<void> | null = null;
 let again = false;
 
@@ -352,7 +444,8 @@ export function refresh(): Promise<void> {
       again = false;
       const session = cache.session;
       if (!session) {
-        set({ db: EMPTY });
+        // Visitors can browse the service store before signing up.
+        set({ db: { ...EMPTY, listings: await publicListings() } });
         continue;
       }
       const [orders, bids, rounds, invoices, payments, messages, evidence, companies, members, kyc, listings, certs, compliance, specs] =
@@ -372,8 +465,9 @@ export function refresh(): Promise<void> {
           all("compliance_items"),
           all("saved_specs"),
         ]);
+      const enquiries = await openEnquiries();
       set({
-        db: mapAll({ orders, bids, rounds, invoices, payments, messages, evidence, companies, members, kyc, listings, certs, compliance, specs, session }),
+        db: mapAll({ orders, bids, rounds, invoices, payments, messages, evidence, companies, members, kyc, listings, certs, compliance, specs, enquiries, session }),
       });
     } while (again);
   })().finally(() => {
@@ -554,6 +648,7 @@ export async function createOrder(
       inspection_date: input.inspectionDate,
       volume_tons: input.volumeTons,
       listing_id: input.listingId ?? null,
+      budget_usd: input.budgetUSD ?? null,
       customer_id: cache.session!.userId,
     })
     .select()
@@ -577,6 +672,15 @@ export async function setPartyVerified(orderId: string, side: "buyer" | "seller"
 
 // ---------- Bids ----------
 
+export async function markPaymentSent(orderId: string, reference: string): Promise<string[]> {
+  need();
+  if (reference.trim().length < 3) return ["Add the bank or UPI reference of your payment."];
+  const { error } = await sb().rpc("mark_payment_sent", { oid: orderId, ref: reference.trim() });
+  if (error) return [error.message];
+  await refresh();
+  return [];
+}
+
 export async function submitBid(orderId: string, bid: Omit<Bid, "id" | "createdAt" | "status" | "rounds">): Promise<Bid> {
   const s = need();
   const companyId = bid.companyId ?? myCompanyIds(["owner", "sales"])[0];
@@ -590,6 +694,7 @@ export async function submitBid(orderId: string, bid: Omit<Bid, "id" | "createdA
       discount_pct: bid.discountPct ?? 0,
       days: bid.days,
       scope: bid.scope,
+      proposed_date: bid.proposedDate ?? null,
       created_by: s.userId,
     })
     .select()
