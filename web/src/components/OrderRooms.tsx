@@ -93,7 +93,7 @@ export default function OrderRooms({ onBook }: { onBook: () => void }) {
   const role: Role = !isRemote || !active ? pickedRole : roleIn(active, session, db.team);
 
   return (
-    <section id="orders" style={{ padding: "clamp(48px, 7vw, 80px) 20px", maxWidth: "1280px", margin: "0 auto" }}>
+    <section id="orders" style={{ padding: "clamp(40px, 5vw, 64px) 20px", maxWidth: "1280px", margin: "0 auto" }}>
       <div style={{ maxWidth: "720px", marginBottom: "28px" }}>
         <h2 className="font-heading" style={{ fontSize: "clamp(26px, 3.4vw, 36px)", fontWeight: 700, color: "var(--text-main)", textWrap: "balance" }}>
           Every order gets its own chatroom

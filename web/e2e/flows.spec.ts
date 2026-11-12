@@ -7,7 +7,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 test("saved buyer spec survives reload and is offered when booking", async ({ page }) => {
-  await page.getByRole("button", { name: "+ Save Current as Buyer Spec" }).click();
+  await page.getByRole("button", { name: "Save as buyer spec" }).click();
   await page.getByLabel("Buyer name").fill("Al-Khaleej Foods");
   await page.getByLabel("Reference name").fill("PO-2611");
   await page.getByRole("button", { name: "Save spec" }).click();

@@ -30,7 +30,7 @@ export default function SurveyorNetwork() {
     <section
       id="surveyors"
       style={{
-        padding: "clamp(48px, 7vw, 80px) 20px",
+        padding: "clamp(40px, 5vw, 64px) 20px",
         maxWidth: "1280px",
         margin: "0 auto",
       }}
@@ -47,7 +47,7 @@ export default function SurveyorNetwork() {
           }}
         >
           <MapPin size={13} weight="bold" />
-          <span>SECTION 03 / SURVEYOR NETWORK</span>
+          <span>Surveyor network preview</span>
         </div>
         <h2
           className="font-heading"

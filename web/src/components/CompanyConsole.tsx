@@ -182,7 +182,7 @@ export default function CompanyConsole() {
   const current = tabs.some((t) => t.area === tab) ? tab : tabs[0].area;
 
   return (
-    <section id="company" style={{ padding: "clamp(48px, 7vw, 80px) 20px", maxWidth: "1280px", margin: "0 auto" }}>
+    <section id="company" style={{ padding: "clamp(40px, 5vw, 64px) 20px", maxWidth: "1280px", margin: "0 auto" }}>
       <div style={{ maxWidth: "720px", marginBottom: "28px" }}>
         <h2 className="font-heading" style={{ fontSize: "clamp(26px, 3.4vw, 36px)", fontWeight: 700, color: "var(--text-main)", textWrap: "balance" }}>
           Run your inspection company here

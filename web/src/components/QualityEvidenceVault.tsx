@@ -89,7 +89,7 @@ export default function QualityEvidenceVault() {
       surveyor: "G. R. Mehta",
       surveyorId: "IND-SUR-1102 (FOSFA/GAFTA)",
       hash: "991e0a2b47f93c...01cd",
-      imageUrl: "https://images.unsplash.com/photo-1549465220-1a8b9238cd48?auto=format&fit=crop&w=800&q=80",
+      imageUrl: "https://images.unsplash.com/photo-1494412519320-aa613dfb7738?auto=format&fit=crop&w=800&q=80",
     },
   ];
 
@@ -107,7 +107,7 @@ export default function QualityEvidenceVault() {
     <section
       id="vault"
       style={{
-        padding: "clamp(48px, 7vw, 80px) 20px",
+        padding: "clamp(40px, 5vw, 64px) 20px",
         maxWidth: "1280px",
         margin: "0 auto",
       }}
@@ -124,7 +124,7 @@ export default function QualityEvidenceVault() {
           }}
         >
           <Vault size={13} weight="bold" />
-          <span>SECTION 03 / DIGITAL CHAIN OF CUSTODY</span>
+          <span>Chain of custody</span>
         </div>
         <h2
           className="font-heading"

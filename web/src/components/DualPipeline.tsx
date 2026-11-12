@@ -43,7 +43,7 @@ export default function DualPipeline({ onBookInspection }: DualPipelineProps) {
     <section
       id="services"
       style={{
-        padding: "clamp(48px, 7vw, 80px) 20px",
+        padding: "clamp(40px, 5vw, 64px) 20px",
         maxWidth: "1280px",
         margin: "0 auto",
       }}
@@ -60,7 +60,7 @@ export default function DualPipeline({ onBookInspection }: DualPipelineProps) {
           }}
         >
           <Cube size={13} weight="bold" />
-          <span>SECTION 02 / CORE INSPECTION SERVICES</span>
+          <span>Inspection services</span>
         </div>
         <h2
           className="font-heading"

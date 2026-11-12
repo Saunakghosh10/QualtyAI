@@ -270,7 +270,7 @@ export default function CommodityCalibrator({ onInjectIntoBooking }: CommodityCa
   }
 
   return (
-    <section id="calibrator" style={{ padding: "clamp(48px, 7vw, 80px) 20px", maxWidth: "1280px", margin: "0 auto" }}>
+    <section id="calibrator" style={{ padding: "clamp(40px, 5vw, 64px) 20px", maxWidth: "1280px", margin: "0 auto" }}>
       {/* Header */}
       <div style={{ textAlign: "center", maxWidth: "720px", margin: "0 auto 36px" }}>
         <div
@@ -283,7 +283,7 @@ export default function CommodityCalibrator({ onInjectIntoBooking }: CommodityCa
           }}
         >
           <Sliders size={13} weight="bold" />
-          <span>SECTION 01 / CALIBRATION & SPEC CHECKER</span>
+          <span>Spec checker</span>
         </div>
         <h2
           className="font-heading"
@@ -295,7 +295,7 @@ export default function CommodityCalibrator({ onInjectIntoBooking }: CommodityCa
             letterSpacing: "-0.03em",
           }}
         >
-          Commodity Quality Calibrator
+          Check cargo against your spec
         </h2>
         <p style={{ fontSize: "15px", color: "var(--text-secondary)", lineHeight: 1.6 }}>
           Calibrate physical cargo defect tolerances across grains, oilseeds, and sugar. Upload signed contract specifications or save custom buyer profiles.
@@ -303,27 +303,17 @@ export default function CommodityCalibrator({ onInjectIntoBooking }: CommodityCa
       </div>
 
       {/* Preset Commodity Switcher */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: "8px",
-          flexWrap: "wrap",
-          marginBottom: "20px",
-        }}
-      >
-        <span style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-muted)", marginRight: "4px" }}>
-          Commodities:
-        </span>
+      <div role="group" aria-label="Commodity" className="chip-rail" style={{ marginBottom: "20px", alignItems: "center" }}>
         {Object.entries(COMMODITY_PRESETS).map(([key, item]) => {
           const isActive = selectedPreset === key;
           return (
             <button
               key={key}
               onClick={() => handlePresetChange(key)}
+              aria-pressed={isActive}
               style={{
                 padding: "8px 14px",
+                whiteSpace: "nowrap",
                 borderRadius: "9999px",
                 fontSize: "12.5px",
                 fontWeight: 500,
@@ -332,7 +322,7 @@ export default function CommodityCalibrator({ onInjectIntoBooking }: CommodityCa
                 border: `1px solid ${isActive ? "var(--accent-primary)" : "var(--border-main)"}`,
                 boxShadow: isActive ? "var(--shadow-sm)" : "none",
                 cursor: "pointer",
-                transition: "all 0.15s ease",
+                transition: "background-color 0.2s var(--ease-out), color 0.2s var(--ease-out), border-color 0.2s var(--ease-out)",
               }}
             >
               {item.label}
@@ -404,11 +394,11 @@ export default function CommodityCalibrator({ onInjectIntoBooking }: CommodityCa
               fontSize: "12px",
               fontWeight: 600,
               color: "var(--accent-primary)",
-              textDecoration: "underline",
               cursor: "pointer",
+              padding: "8px 4px",
             }}
           >
-            {isSavingSpec ? "Cancel" : "+ Save Current as Buyer Spec"}
+            {isSavingSpec ? "Cancel" : "Save as buyer spec"}
           </button>
         </div>
 
