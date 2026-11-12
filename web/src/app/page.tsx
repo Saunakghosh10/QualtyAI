@@ -4,7 +4,7 @@ import React, { useState } from "react";
 import Navbar from "@/components/Navbar";
 import Hero from "@/components/Hero";
 import StandardsStrip from "@/components/StandardsStrip";
-import DualPipeline from "@/components/DualPipeline";
+import ServiceStore, { type StorePick } from "@/components/ServiceStore";
 import CommodityCalibrator, { CommodityParams } from "@/components/CommodityCalibrator";
 import QualityEvidenceVault from "@/components/QualityEvidenceVault";
 import QualityPilot from "@/components/QualityPilot";
@@ -21,6 +21,8 @@ export default function Home() {
   const [injectedParams, setInjectedParams] = useState<CommodityParams | null>(null);
   const [contractInfo, setContractInfo] = useState<{ filename: string; specName: string } | null>(null);
   const [selectedServiceType, setSelectedServiceType] = useState<string>("Pre-Shipment Inspection (PSI)");
+  // Set when booking starts from the service store, so the modal opens on that company and port.
+  const [storePick, setStorePick] = useState<{ listingId: string | null; location?: string; mode: "quick" | "inquiry"; n: number } | null>(null);
 
   const handleOpenQuickBooking = () => {
     setSelectedServiceType("Pre-Shipment Inspection (PSI)");
@@ -32,8 +34,9 @@ export default function Home() {
     setIsBookingOpen(true);
   };
 
-  const handleServiceSelect = (serviceTitle?: string) => {
-    if (serviceTitle) setSelectedServiceType(serviceTitle);
+  const handleStorePick = (p: StorePick) => {
+    setSelectedServiceType(p.service);
+    setStorePick((prev) => ({ listingId: p.listing?.id ?? null, location: p.location, mode: p.mode, n: (prev?.n ?? 0) + 1 }));
     setIsBookingOpen(true);
   };
 
@@ -60,8 +63,8 @@ export default function Home() {
       {/* Standards & Accreditation Strip */}
       <StandardsStrip />
 
-      {/* Section 02: Physical Cargo Inspection Suite (Chemical & Contracts Badged Coming Soon/Locked) */}
-      <DualPipeline onBookInspection={handleServiceSelect} />
+      {/* Service store: standard services, companies per port, book now */}
+      <ServiceStore onPick={handleStorePick} />
 
       {/* Section 01: Multi-Commodity Calibrator, Contract Upload & Quality Checker */}
       <CommodityCalibrator onInjectIntoBooking={handleInjectIntoBooking} />
@@ -94,6 +97,9 @@ export default function Home() {
         injectedParams={injectedParams}
         contractInfo={contractInfo}
         initialServiceType={selectedServiceType}
+        initialListingId={storePick ? `${storePick.listingId ?? ""}#${storePick.n}` : null}
+        initialLocation={storePick?.location}
+        initialMode={storePick?.mode}
       />
     </main>
   );

@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import path from "node:path";
-import { bookFromCalibrator, bookingDialog, openRoom, orders, post, viewAs } from "./helpers";
+import { bookFromCalibrator, bookingDialog, openRoom, orders, payIfDue, post, viewAs } from "./helpers";
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
@@ -108,7 +108,8 @@ test("enquiry: companies bid, customer accepts, winner joins the room", async ({
   // Bids are listed cheapest first.
   await room.getByRole("button", { name: "Accept bid" }).first().click();
   await expect(room.getByText(/Members: .*Cotecna \(Inspection company\)/)).toBeVisible();
-  await expect(room.getByText("Customer accepted Cotecna's bid of $950.")).toBeVisible();
+  await payIfDue(page);
+  await expect(room.getByText(/^Customer accepted Cotecna's bid of \$950\./)).toBeVisible();
   await expect(room.getByRole("button", { name: "Accept bid" })).toHaveCount(0);
 });
 

@@ -13,6 +13,7 @@ import {
   Lock,
 } from "@phosphor-icons/react";
 import VaultRecords from "./VaultRecords";
+import { isRemote, useSession } from "@/lib/store";
 
 interface EvidenceItem {
   id: string;
@@ -30,6 +31,7 @@ interface EvidenceItem {
 }
 
 export default function QualityEvidenceVault() {
+  const { session, ready } = useSession();
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [activeItem, setActiveItem] = useState<EvidenceItem | null>(null);
@@ -139,13 +141,31 @@ export default function QualityEvidenceVault() {
           Quality Evidence Vault
         </h2>
         <p style={{ fontSize: "15px", color: "var(--text-secondary)", lineHeight: 1.6 }}>
-          Immutable on-dock photographic evidence watermarked with GPS coordinates, ISO timestamps, and surveyor digital IDs for bulletproof dispute defense.
+          Every photo, video and summary from your inspections, stamped with GPS, time and a SHA-256 fingerprint. Only you
+          and the inspection company on the order can open them.
         </p>
       </div>
 
-      {/* Real evidence from order chatrooms */}
-      <VaultRecords />
+      {/* Real evidence from order chatrooms: signed in only, and only your own orders */}
+      {isRemote && !session ? (
+        <div className="card-shell" style={{ padding: "32px 24px", textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: "8px" }}>
+          <Lock size={28} color="var(--accent-primary)" aria-hidden="true" />
+          <p style={{ fontSize: "16px", fontWeight: 600, color: "var(--text-main)" }}>{ready ? "Sign in to open your evidence" : "Checking your sign-in..."}</p>
+          <p style={{ fontSize: "14px", color: "var(--text-secondary)", maxWidth: "460px" }}>
+            Evidence is private to the customer and the inspection company on each order.
+          </p>
+          {ready && (
+            <button className="btn-primary" style={{ marginTop: "8px" }} onClick={() => window.dispatchEvent(new CustomEvent("qualty:open-auth", { detail: { mode: "signin" } }))}>
+              Sign in
+            </button>
+          )}
+        </div>
+      ) : (
+        <VaultRecords />
+      )}
 
+      {!isRemote && (
+      <>
       <h3 className="font-heading" style={{ fontSize: "15px", fontWeight: 600, color: "var(--text-secondary)", marginBottom: "12px" }}>
         Example records
       </h3>
@@ -344,6 +364,9 @@ export default function QualityEvidenceVault() {
       </div>
 
       {/* Proof Certificate Drawer / Modal */}
+      </>
+      )}
+
       {activeItem && (
         <div
           style={{

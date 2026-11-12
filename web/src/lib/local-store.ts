@@ -47,6 +47,8 @@ export interface Bid {
   rounds?: BidRound[];
   /** Date the company plans to follow up with the customer (YYYY-MM-DD). */
   followUpOn?: string;
+  /** Inspection date the company proposes (YYYY-MM-DD). */
+  proposedDate?: string;
 }
 
 export interface BidRound {
@@ -89,7 +91,19 @@ export interface Order {
   /** Service store listing the quick booking came from. */
   listingId?: string;
   invoice?: Invoice;
+  /** Customer's budget for an enquiry, in USD. */
+  budgetUSD?: number;
+  /** Set when the invoice is fully paid. The chatroom opens from then on. */
+  paidAt?: string;
+  /** Bank or UPI reference the customer gave when they paid, waiting for the company to confirm. */
+  paymentRef?: string;
+  paymentSentOn?: string;
 }
+
+/** The chatroom and evidence are open to the two parties only after payment. */
+export const roomOpen = (o: Pick<Order, "status" | "paidAt">) => o.status !== "enquiry" && !!o.paidAt;
+/** Booked and invoiced, waiting for the customer to pay. */
+export const awaitingPayment = (o: Pick<Order, "status" | "paidAt">) => o.status !== "enquiry" && !o.paidAt;
 
 export type MessageKind = "text" | "system" | "observation" | "dispatch" | "flag" | "media" | "summary";
 
@@ -301,16 +315,17 @@ export function createOrder(
   };
   const db = load();
   commit({ ...db, orders: [order, ...db.orders] });
+  if (input.mode === "quick" && order.priceUSD) autoInvoice(order.id, order.priceUSD);
   systemMessage(
     order.id,
     input.mode === "quick"
-      ? `Chatroom opened for order ${order.id}. Members: ${order.members.map((m) => m.name).join(", ")}.`
-      : `Enquiry ${order.id} is open for bids. Inspection companies can bid in this room; the customer picks one.`,
+      ? `Order ${order.id} booked with ${company}. Invoice sent; the chatroom opens once payment is confirmed.`
+      : `Enquiry ${order.id} is open for bids. Inspection companies bid on it; the customer picks one.`,
   );
   if (order.spec) {
     systemMessage(order.id, `Booked spec: ${describeSpec(order.spec)}. Readings outside it are flagged automatically.`);
   }
-  return order;
+  return getOrder(order.id) ?? order;
 }
 
 export function describeSpec(s: CommodityParams) {
@@ -339,7 +354,11 @@ export function acceptBid(orderId: string, bidId: string) {
       : [...x.members.slice(0, 1), { role: "company", name: bid.company }, ...x.members.slice(1)],
     bids: x.bids.map((b) => ({ ...b, status: b.id === bidId ? "accepted" : b.status === "withdrawn" ? "withdrawn" : "declined" })),
   }));
-  systemMessage(orderId, `Customer accepted ${bid.company}'s bid of $${bidNet(bid).toLocaleString()}. ${bid.company} joined the chatroom.`);
+  autoInvoice(orderId, bidNet(bid));
+  systemMessage(
+    orderId,
+    `Customer accepted ${bid.company}'s bid of $${bidNet(bid).toLocaleString()}. Invoice sent; the chatroom opens once payment is confirmed.`,
+  );
 }
 
 // ---------- Bid negotiation (enquiries) ----------
@@ -629,6 +648,8 @@ export interface ServiceListing {
   availableTo: string;
   active: boolean;
   createdAt: string;
+  /** The company's KYC has been checked by the Qualty team. */
+  companyVerified?: boolean;
 }
 
 export const listingNet = (l: Pick<ServiceListing, "priceUSD" | "discountPct">) =>
@@ -724,6 +745,25 @@ export function paymentStatus(o: Pick<Order, "invoice">, today = new Date().toIS
   return paid > 0 ? "part-paid" : "unpaid";
 }
 
+const plusDays = (d: number) => new Date(Date.now() + d * 86_400_000).toISOString().slice(0, 10);
+
+/** Every booking gets an invoice at the agreed price, due in 7 days. */
+function autoInvoice(orderId: string, amountUSD: number) {
+  const o = getOrder(orderId);
+  if (!o || o.invoice || !(amountUSD > 0)) return;
+  const invoice: Invoice = { number: `INV-${o.id}`, amountUSD, discountPct: 0, issuedOn: now().slice(0, 10), dueOn: plusDays(7), payments: [] };
+  updateOrder(orderId, (x) => ({ ...x, invoice }));
+}
+
+/** The customer says they paid; the company confirms it with recordPayment. */
+export function markPaymentSent(orderId: string, reference: string): string[] {
+  const o = getOrder(orderId);
+  if (!o || !awaitingPayment(o)) return ["This order isn't waiting for payment."];
+  if (reference.trim().length < 3) return ["Add the bank or UPI reference of your payment."];
+  updateOrder(orderId, (x) => ({ ...x, paymentRef: reference.trim(), paymentSentOn: now().slice(0, 10) }));
+  return [];
+}
+
 export function raiseInvoice(orderId: string, input: { amountUSD: number; discountPct: number; dueOn: string }): string[] {
   const o = getOrder(orderId);
   if (!o) return ["Order not found."];
@@ -752,11 +792,15 @@ export function recordPayment(orderId: string, p: Omit<Payment, "id">): string[]
   if (!(p.amountUSD > 0)) return ["Amount must be more than $0."];
   const due = invoiceTotal(i) - invoicePaid(i);
   if (p.amountUSD > due) return [`Only $${due.toLocaleString()} is left to pay on this invoice.`];
-  updateOrder(orderId, (x) => ({ ...x, invoice: { ...i, payments: [...i.payments, { ...p, id: uid("pay") }] } }));
   const left = due - p.amountUSD;
+  updateOrder(orderId, (x) => ({
+    ...x,
+    invoice: { ...i, payments: [...i.payments, { ...p, id: uid("pay") }] },
+    ...(left <= 0 && !x.paidAt ? { paidAt: now() } : {}),
+  }));
   systemMessage(
     orderId,
-    `Payment of $${p.amountUSD.toLocaleString()} received (${p.method}${p.reference ? `, ref ${p.reference}` : ""}). ${left > 0 ? `$${left.toLocaleString()} still due.` : "Invoice fully paid."}`,
+    `Payment of $${p.amountUSD.toLocaleString()} received (${p.method}${p.reference ? `, ref ${p.reference}` : ""}). ${left > 0 ? `$${left.toLocaleString()} still due.` : "Payment confirmed. Chatroom opened for the customer and the inspection company."}`,
   );
   return [];
 }
@@ -962,6 +1006,7 @@ function flag(orderId: string, text: string, severity: "warning" | "critical") {
 
 export function postMessage(msg: Omit<ChatMessage, "id" | "createdAt">) {
   const o = getOrder(msg.orderId);
+  if (o && !roomOpen(o) && msg.role !== "admin") return null;
   if (o && o.status === "booked" && msg.role === "inspector" && msg.kind !== "text") {
     updateOrder(o.id, (x) => ({ ...x, status: "in-progress" }));
   }

@@ -25,6 +25,10 @@ interface BookingModalProps {
   injectedParams?: CommodityParams | null;
   contractInfo?: { filename: string; specName: string } | null;
   initialServiceType?: string;
+  /** Pre-picked from the service store: the company listing, its port and the mode. */
+  initialListingId?: string | null;
+  initialLocation?: string;
+  initialMode?: "quick" | "inquiry";
 }
 
 export default function BookingModal({
@@ -33,6 +37,9 @@ export default function BookingModal({
   injectedParams,
   contractInfo,
   initialServiceType,
+  initialListingId,
+  initialLocation,
+  initialMode,
 }: BookingModalProps) {
   const [bookingMode, setBookingMode] = useState<"quick" | "inquiry">("quick");
   const [step, setStep] = useState<number>(1);
@@ -71,6 +78,18 @@ export default function BookingModal({
   const { session } = useSession();
   const listings = useDB().listings;
   const [listingId, setListingId] = useState<string | null>(null);
+  const [seenListing, setSeenListing] = useState<string | null | undefined>(undefined);
+  if (isOpen && initialListingId !== seenListing) {
+    setSeenListing(initialListingId);
+    // "<listing id>#<n>": n changes on every pick from the store so picking the same company again re-seeds.
+    const picked = initialListingId?.split("#")[0];
+    if (picked) setListingId(picked);
+    if (initialLocation) setFormData((prev) => ({ ...prev, portLocation: initialLocation }));
+    if (initialMode) {
+      setBookingMode(initialMode);
+      setFormData((prev) => ({ ...prev, bookingType: initialMode }));
+    }
+  }
   // Company store listings that fit this booking; cheapest is picked unless the customer chooses.
   const matches = useMemo(
     () =>
@@ -173,7 +192,7 @@ export default function BookingModal({
         ? chosen
           ? { inspectionCompany: chosen.companyName, priceUSD: listingNet(chosen), listingId: chosen.id }
           : { priceUSD: 650 }
-        : {}),
+        : { budgetUSD: formData.targetBudgetUSD > 0 ? formData.targetBudgetUSD : undefined }),
     }));
     setIsSubmitting(false);
     if (!order) return;
@@ -316,7 +335,7 @@ export default function BookingModal({
 
             <p style={{ fontSize: "14px", color: "var(--text-secondary)", marginBottom: "20px", maxWidth: "460px", margin: "0 auto 20px" }}>
               {bookingMode === "quick"
-                ? `Your order chatroom is open with you, the inspection company and the Qualty admin team. All reports, photos and the final summary arrive there.`
+                ? `The inspection company has your order and an invoice is waiting in the order. Pay it, enter the payment reference, and the chatroom opens for you and the company.`
                 : `Inspection companies can now bid on your enquiry. Compare bids in the order chatroom and accept the one you want.`}
             </p>
 
@@ -347,6 +366,8 @@ export default function BookingModal({
               </button>
             </div>
           </div>
+        ) : isRemote && !session ? (
+          <AccountGate />
         ) : (
           <div>
             {/* Dual Booking Mode Switcher Tab */}
@@ -896,3 +917,27 @@ type="email"
   );
 }
 
+/** Bookings need an account first, so the order, invoice and chatroom are saved to someone. */
+function AccountGate() {
+  const open = (mode: "signin" | "signup") =>
+    window.dispatchEvent(new CustomEvent("qualty:open-auth", { detail: { mode, as: "customer" } }));
+  return (
+    <div style={{ padding: "24px 8px", display: "flex", flexDirection: "column", gap: "14px" }}>
+      <h4 className="font-heading" style={{ fontSize: "20px", fontWeight: 700, color: "var(--text-main)" }}>
+        Create an account to book
+      </h4>
+      <p style={{ fontSize: "14px", color: "var(--text-secondary)", lineHeight: 1.6 }}>
+        Your order, its invoice and the chatroom with the inspection company are saved to your account. Only you and the
+        company you book can see them. After that you set the date and budget, or raise an enquiry for bids.
+      </p>
+      <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+        <button type="button" className="btn-primary" style={{ padding: "10px 20px" }} onClick={() => open("signup")}>
+          Create a customer account
+        </button>
+        <button type="button" className="btn-secondary" style={{ padding: "10px 20px" }} onClick={() => open("signin")}>
+          I already have an account
+        </button>
+      </div>
+    </div>
+  );
+}

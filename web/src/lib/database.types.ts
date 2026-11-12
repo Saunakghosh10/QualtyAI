@@ -63,6 +63,7 @@ export type Database = {
           id: string
           order_id: string
           price_usd: number
+          proposed_date: string | null
           scope: string
           status: Database["public"]["Enums"]["bid_status"]
         }
@@ -76,6 +77,7 @@ export type Database = {
           id?: string
           order_id: string
           price_usd: number
+          proposed_date?: string | null
           scope?: string
           status?: Database["public"]["Enums"]["bid_status"]
         }
@@ -89,6 +91,7 @@ export type Database = {
           id?: string
           order_id?: string
           price_usd?: number
+          proposed_date?: string | null
           scope?: string
           status?: Database["public"]["Enums"]["bid_status"]
         }
@@ -517,6 +520,7 @@ export type Database = {
       }
       orders: {
         Row: {
+          budget_usd: number | null
           buyer_gstin: string | null
           buyer_iec: string | null
           buyer_name: string
@@ -531,6 +535,9 @@ export type Database = {
           listing_id: string | null
           location: string
           mode: Database["public"]["Enums"]["order_mode"]
+          paid_at: string | null
+          payment_ref: string | null
+          payment_sent_on: string | null
           price_usd: number | null
           seller_gstin: string | null
           seller_iec: string | null
@@ -543,6 +550,7 @@ export type Database = {
           volume_tons: number
         }
         Insert: {
+          budget_usd?: number | null
           buyer_gstin?: string | null
           buyer_iec?: string | null
           buyer_name: string
@@ -557,6 +565,9 @@ export type Database = {
           listing_id?: string | null
           location: string
           mode: Database["public"]["Enums"]["order_mode"]
+          paid_at?: string | null
+          payment_ref?: string | null
+          payment_sent_on?: string | null
           price_usd?: number | null
           seller_gstin?: string | null
           seller_iec?: string | null
@@ -569,6 +580,7 @@ export type Database = {
           volume_tons: number
         }
         Update: {
+          budget_usd?: number | null
           buyer_gstin?: string | null
           buyer_iec?: string | null
           buyer_name?: string
@@ -583,6 +595,9 @@ export type Database = {
           listing_id?: string | null
           location?: string
           mode?: Database["public"]["Enums"]["order_mode"]
+          paid_at?: string | null
+          payment_ref?: string | null
+          payment_sent_on?: string | null
           price_usd?: number | null
           seller_gstin?: string | null
           seller_iec?: string | null
@@ -762,7 +777,27 @@ export type Database = {
     }
     Functions: {
       accept_bid: { Args: { bid: string }; Returns: undefined }
+      browse_listings: {
+        Args: never
+        Returns: {
+          available_from: string
+          available_to: string
+          commodities: string[]
+          company_id: string
+          company_name: string
+          company_verified: boolean
+          created_at: string
+          discount_pct: number
+          id: string
+          location: string
+          price_usd: number
+          service: string
+          surveyors: number
+          turnaround_days: number
+        }[]
+      }
       can_bid: { Args: never; Returns: boolean }
+      can_use_room: { Args: { oid: string }; Returns: boolean }
       chat_role_for: {
         Args: { oid: string }
         Returns: Database["public"]["Enums"]["chat_role"]
@@ -780,7 +815,26 @@ export type Database = {
       is_company_user: { Args: never; Returns: boolean }
       is_order_customer: { Args: { oid: string }; Returns: boolean }
       is_order_member: { Args: { oid: string }; Returns: boolean }
+      mark_payment_sent: {
+        Args: { oid: string; ref: string }
+        Returns: undefined
+      }
       net_price: { Args: { discount: number; price: number }; Returns: number }
+      open_enquiries: {
+        Args: never
+        Returns: {
+          budget_usd: number
+          commodity: string
+          created_at: string
+          id: string
+          inspection_date: string
+          location: string
+          service: string
+          spec: Json
+          spec_label: string
+          volume_tons: number
+        }[]
+      }
       set_order_status: {
         Args: { next: Database["public"]["Enums"]["order_status"]; oid: string }
         Returns: undefined

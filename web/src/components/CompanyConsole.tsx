@@ -37,6 +37,7 @@ import {
   listingProblems,
   bidNet,
   paymentStatus,
+  awaitingPayment,
   raiseInvoice,
   recordPayment,
   invoiceTotal,
@@ -199,9 +200,22 @@ export default function CompanyConsole() {
             {ready ? "Sign in to set up your company or open your team's console." : "Checking your sign-in..."}
           </p>
           {ready && (
-            <button className="btn-primary" style={{ padding: "9px 18px", fontSize: "13.5px" }} onClick={() => window.dispatchEvent(new CustomEvent("qualty:open-auth"))}>
-              Sign in or create an account
-            </button>
+            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+              <button
+                className="btn-primary"
+                style={{ padding: "9px 18px", fontSize: "13.5px" }}
+                onClick={() => window.dispatchEvent(new CustomEvent("qualty:open-auth", { detail: { mode: "signup", as: "company" } }))}
+              >
+                Create a company account
+              </button>
+              <button
+                className="btn-secondary"
+                style={{ padding: "9px 18px", fontSize: "13.5px" }}
+                onClick={() => window.dispatchEvent(new CustomEvent("qualty:open-auth", { detail: { mode: "signin" } }))}
+              >
+                Sign in
+              </button>
+            </div>
           )}
         </div>
       ) : !company ? (
@@ -370,13 +384,16 @@ function OrdersTab({ company }: { company: Company }) {
               <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
                 <span className="font-mono" style={{ fontSize: "13px", fontWeight: 700, color: "var(--text-main)" }}>{orderRef(o)}</span>
                 <Pill tone={ORDER_STATUS[o.status][0]}>{ORDER_STATUS[o.status][1]}</Pill>
+                {awaitingPayment(o) && (
+                  <Pill tone="warn">{o.paymentRef ? `Customer says paid (ref ${o.paymentRef})` : "Waiting for payment"}</Pill>
+                )}
               </div>
               <div style={{ fontSize: "12.5px", color: "var(--text-secondary)", marginTop: "2px" }}>
                 {o.service} · {o.commodity} · {o.location} · {o.inspectionDate}
                 {o.priceUSD ? ` · ${usd(o.priceUSD)}` : ""}
               </div>
             </div>
-            <button style={linkBtn} onClick={() => openChatroom(o.id)}>Open chatroom</button>
+            <button style={linkBtn} onClick={() => openChatroom(o.id)}>{awaitingPayment(o) ? "Open order" : "Open chatroom"}</button>
           </div>
         ))
       )}
@@ -389,7 +406,7 @@ function EnquiriesTab({ company }: { company: Company }) {
   const open = db.orders.filter((o) => o.status === "enquiry");
   const t = today();
   return (
-    <Panel title="Open enquiries" hint="Bid, give a discount or answer a counter-offer inside each enquiry's chatroom. Follow-ups you set are listed here.">
+    <Panel title="Available jobs" hint="Enquiries from customers. You see the job, the port, the date and the budget; the buyer and seller are shared only if your bid is accepted.">
       {open.length === 0 ? (
         <Empty>No open enquiries right now.</Empty>
       ) : (
@@ -404,6 +421,9 @@ function EnquiriesTab({ company }: { company: Company }) {
                 <span style={{ fontSize: "12.5px", color: "var(--text-secondary)" }}>
                   {o.service} · {o.commodity} · {o.volumeTons.toLocaleString()} t · {o.location} · {o.inspectionDate}
                 </span>
+                {o.budgetUSD !== undefined && (
+                  <span style={{ fontSize: "12px", color: "var(--text-secondary)" }}>Customer budget {usd(o.budgetUSD)}</span>
+                )}
                 <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>
                   {o.bids.length} bid(s){Number.isFinite(lowest) ? `, lowest ${usd(lowest)}` : ""}
                   {mine && `. Your bid: ${usd(bidNet(mine))}`}
@@ -588,7 +608,7 @@ function PaymentsTab({ company }: { company: Company }) {
 
 function PaymentRow({ order }: { order: Order }) {
   const [inv, setInv] = useState({ amount: String(order.priceUSD ?? ""), discount: "", due: "" });
-  const [pay, setPay] = useState({ amount: "", method: METHODS[0], reference: "", on: today() });
+  const [pay, setPay] = useState({ amount: "", method: METHODS[0], reference: order.paymentRef ?? "", on: today() });
   const [problems, setProblems] = useState<string[]>([]);
   const [open, setOpen] = useState(false);
   const status = paymentStatus(order);
@@ -608,6 +628,7 @@ function PaymentRow({ order }: { order: Order }) {
               : order.priceUSD
                 ? ` · agreed ${usd(order.priceUSD)}`
                 : ""}
+            {order.paymentRef && !order.paidAt ? ` · customer says paid, ref ${order.paymentRef}` : ""}
           </div>
         </div>
         {status !== "paid" && (

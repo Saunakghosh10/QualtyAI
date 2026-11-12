@@ -12,8 +12,16 @@ beforeEach(async () => {
 
 const party = (name: string) => S.checkParty({ name }).party;
 
-function quickOrder(spec: typeof riceSpec | null = riceSpec) {
+/** A quick order at $650, paid so its chatroom is open. */
+function quickOrder(spec: typeof riceSpec | null = riceSpec, paid = true) {
+  const o = unpaidQuick(spec);
+  if (paid) S.recordPayment(o.id, { amountUSD: 650, method: "UPI", reference: "UTR123", receivedOn: "2026-11-01" });
+  return S.getOrder(o.id)!;
+}
+
+function unpaidQuick(spec: typeof riceSpec | null = riceSpec) {
   return S.createOrder({
+    priceUSD: 650,
     mode: "quick",
     service: "Pre-Shipment Inspection (PSI)",
     commodity: "Rice",
@@ -91,8 +99,32 @@ describe("orders and chatrooms", () => {
     expect(o2.id).toBe(`QI-${year}-0002`);
     expect(o1.status).toBe("booked");
     expect(o1.members.map((m) => m.role)).toEqual(["customer", "company", "admin"]);
-    expect(messages(o1.id)[0].text).toMatch(/^Chatroom opened for order/);
+    expect(messages(o1.id)[0].text).toMatch(/booked with .* chatroom opens once payment is confirmed/);
     expect(messages(o1.id)[1].text).toMatch(/^Booked spec: Rice, broken ≤ 2%/);
+  });
+
+  it("invoices every booking and keeps the chatroom shut until the invoice is paid", () => {
+    const o = S.getOrder(unpaidQuick().id)!;
+    expect(o.invoice).toMatchObject({ amountUSD: 650, discountPct: 0 });
+    expect(S.roomOpen(o)).toBe(false);
+    expect(S.awaitingPayment(o)).toBe(true);
+    expect(S.postMessage({ orderId: o.id, kind: "text", role: "customer", author: "C", text: "early" })).toBeNull();
+    expect(messages(o.id).some((m: { text: string }) => m.text === "early")).toBe(false);
+
+    expect(S.markPaymentSent(o.id, "x")).toEqual(["Add the bank or UPI reference of your payment."]);
+    expect(S.markPaymentSent(o.id, "UTR998877")).toEqual([]);
+    expect(S.getOrder(o.id)!.paymentRef).toBe("UTR998877");
+    expect(S.roomOpen(S.getOrder(o.id)!)).toBe(false);
+
+    S.recordPayment(o.id, { amountUSD: 400, method: "UPI", reference: "UTR998877", receivedOn: "2026-11-02" });
+    expect(S.roomOpen(S.getOrder(o.id)!)).toBe(false);
+    S.recordPayment(o.id, { amountUSD: 250, method: "UPI", reference: "UTR998878", receivedOn: "2026-11-03" });
+    const paid = S.getOrder(o.id)!;
+    expect(S.roomOpen(paid)).toBe(true);
+    expect(messages(o.id).at(-1).text).toContain("Chatroom opened");
+    expect(S.markPaymentSent(o.id, "again")).toEqual(["This order isn't waiting for payment."]);
+    S.postMessage({ orderId: o.id, kind: "text", role: "customer", author: "C", text: "now" });
+    expect(messages(o.id).some((m: { text: string }) => m.text === "now")).toBe(true);
   });
 
   it("runs an enquiry: bids, accept, losing bids declined, company joins", () => {
@@ -119,6 +151,8 @@ describe("orders and chatrooms", () => {
     const after = S.getOrder(e.id)!;
     expect(after.status).toBe("booked");
     expect(after.inspectionCompany).toBe("Cotecna");
+    expect(after.invoice?.amountUSD).toBe(950);
+    expect(S.awaitingPayment(after)).toBe(true);
     expect(after.members.map((m) => `${m.role}:${m.name}`)).toEqual(["customer:Cust", "company:Cotecna", "admin:Qualty admin team"]);
     expect(after.bids.map((b) => b.status)).toEqual(["declined", "accepted"]);
   });

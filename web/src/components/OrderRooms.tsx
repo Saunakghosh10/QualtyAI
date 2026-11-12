@@ -35,6 +35,12 @@ import {
   isRemote,
   orderRef,
   myCompanyIds,
+  roomOpen,
+  awaitingPayment,
+  markPaymentSent,
+  recordPayment,
+  invoiceTotal,
+  invoicePaid,
   type Session,
   type TeamMember,
   type Role,
@@ -99,8 +105,8 @@ export default function OrderRooms({ onBook }: { onBook: () => void }) {
           Every order gets its own chatroom
         </h2>
         <p style={{ fontSize: "15px", color: "var(--text-secondary)", lineHeight: 1.6, marginTop: "10px", textWrap: "pretty" }}>
-          The customer, the inspection company and the Qualty admin team are added when the order is placed. Inspectors report
-          here: observations, truck and container dispatch, photos and videos. Readings outside the booked spec are flagged
+          Once the order is booked and paid, a private chatroom opens for you and the inspection company. Inspectors report
+          here live: readings, truck and container dispatch, photos and videos. Readings outside the booked spec are flagged
           automatically, and closing the inspection writes the summary into the Quality Evidence Vault.
         </p>
       </div>
@@ -110,12 +116,17 @@ export default function OrderRooms({ onBook }: { onBook: () => void }) {
           <ChatsCircle size={32} color="var(--accent-primary)" style={{ margin: "0 auto 12px" }} />
           <p style={{ fontSize: "15px", fontWeight: 600, color: "var(--text-main)" }}>{ready ? "Sign in to see your orders" : "Checking your sign-in..."}</p>
           <p style={{ fontSize: "13.5px", color: "var(--text-muted)", margin: "6px auto 18px", maxWidth: "420px" }}>
-            Your orders, bids and chatrooms are saved to your account and shared with the inspection company.
+            Your orders, invoices and chatrooms are private to you and the inspection company you book.
           </p>
           {ready && (
-            <button className="btn-primary" onClick={() => window.dispatchEvent(new CustomEvent("qualty:open-auth"))} style={{ padding: "10px 22px" }}>
-              Sign in
-            </button>
+            <div style={{ display: "flex", gap: "8px", justifyContent: "center", flexWrap: "wrap" }}>
+              <button className="btn-primary" onClick={() => window.dispatchEvent(new CustomEvent("qualty:open-auth", { detail: { mode: "signin" } }))} style={{ padding: "10px 22px" }}>
+                Sign in
+              </button>
+              <button className="btn-secondary" onClick={() => window.dispatchEvent(new CustomEvent("qualty:open-auth", { detail: { mode: "signup", as: "customer" } }))} style={{ padding: "10px 22px" }}>
+                Create a customer account
+              </button>
+            </div>
           )}
         </div>
       ) : orders.length === 0 ? (
@@ -220,7 +231,9 @@ function Room({ order, role, setRole }: { order: Order; role: Role; setRole: (r:
   }, [messages.length]);
 
   const closed = order.status === "completed";
-  const canReport = (role === "inspector" || role === "company" || role === "admin") && !closed && order.status !== "enquiry";
+  const open = roomOpen(order) || (role === "admin" && order.status !== "enquiry");
+  const canReport = (role === "inspector" || role === "company" || role === "admin") && !closed && open;
+  const partiesHidden = order.members.length === 0;
 
   return (
     <div className="card-shell" style={{ flex: "999 1 480px", minWidth: 0, padding: 0, overflow: "hidden" }}>
@@ -251,8 +264,19 @@ function Room({ order, role, setRole }: { order: Order; role: Role; setRole: (r:
         <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>
           Members: {order.members.map((m) => `${m.name} (${ROLE_LABEL[m.role]})`).join(", ")}
         </div>
-        <PartyLine label="Buyer" party={order.buyer} canVerify={role === "admin"} onVerify={() => void run(setPartyVerified(order.id, "buyer"))} />
-        <PartyLine label="Seller" party={order.seller} canVerify={role === "admin"} onVerify={() => void run(setPartyVerified(order.id, "seller"))} />
+        {partiesHidden ? (
+          <p style={{ fontSize: "12px", color: "var(--text-muted)" }}>
+            Buyer, seller and customer details are shared only with the company whose bid is accepted.
+          </p>
+        ) : (
+          <>
+            <PartyLine label="Buyer" party={order.buyer} canVerify={role === "admin"} onVerify={() => void run(setPartyVerified(order.id, "buyer"))} />
+            <PartyLine label="Seller" party={order.seller} canVerify={role === "admin"} onVerify={() => void run(setPartyVerified(order.id, "seller"))} />
+          </>
+        )}
+        {order.budgetUSD !== undefined && (
+          <p style={{ fontSize: "12px", color: "var(--text-secondary)" }}>Customer budget: ${order.budgetUSD.toLocaleString()}</p>
+        )}
         {order.spec && (
           <p style={{ fontSize: "12px", color: "var(--accent-text)" }}>
             Booked spec{order.specLabel ? ` (${order.specLabel})` : ""}: {describeSpec(order.spec)}
@@ -262,6 +286,14 @@ function Room({ order, role, setRole }: { order: Order; role: Role; setRole: (r:
 
       {order.mode === "inquiry" && <Bids order={order} role={role} />}
 
+      {order.status === "enquiry" ? (
+        <p style={{ padding: "16px 20px", fontSize: "13px", color: "var(--text-muted)", borderTop: "1px solid var(--border-main)" }}>
+          The chatroom opens for the customer and the chosen company once a bid is accepted and paid.
+        </p>
+      ) : !open ? (
+        <PaymentPanel order={order} role={role} />
+      ) : (
+        <>
       {/* Thread */}
       <div ref={threadRef} role="log" aria-label={`Chat for ${orderRef(order)}`} style={{ maxHeight: "460px", overflowY: "auto", padding: "16px 20px", display: "flex", flexDirection: "column", gap: "10px", backgroundColor: "var(--bg-subtle)" }}>
         {messages.map((m) => (
@@ -296,7 +328,92 @@ function Room({ order, role, setRole }: { order: Order; role: Role; setRole: (r:
           <p style={{ fontSize: "11.5px", color: "var(--text-muted)", marginTop: "6px" }}>Unticked items are flagged as missing in the summary.</p>
         </div>
       )}
+        </>
+      )}
     </div>
+  );
+}
+
+/** Booked but not paid: the customer pays and gives the reference, the company confirms. */
+function PaymentPanel({ order, role }: { order: Order; role: Role }) {
+  const [reference, setReference] = useState(order.paymentRef ?? "");
+  const [problems, setProblems] = useState<string[]>([]);
+  const inv = order.invoice;
+  const due = inv ? invoiceTotal(inv) - invoicePaid(inv) : order.priceUSD ?? 0;
+  const company = order.inspectionCompany ?? "the inspection company";
+
+  const sendRef = async () => {
+    const p = await run(markPaymentSent(order.id, reference));
+    setProblems(p ?? []);
+  };
+  const confirm = async () => {
+    const p = await run(
+      recordPayment(order.id, {
+        amountUSD: due,
+        method: "Bank transfer",
+        reference: order.paymentRef ?? "",
+        receivedOn: new Date().toISOString().slice(0, 10),
+      }),
+    );
+    setProblems(p ?? []);
+  };
+
+  return (
+    <section aria-label="Payment" style={{ padding: "20px", borderTop: "1px solid var(--border-main)", display: "flex", flexDirection: "column", gap: "10px" }}>
+      <h4 style={{ fontSize: "15px", fontWeight: 600, color: "var(--text-main)" }}>
+        {awaitingPayment(order) ? "Waiting for payment" : "Payment"}
+      </h4>
+      <p style={{ fontSize: "13.5px", color: "var(--text-secondary)" }}>
+        {inv ? `Invoice ${inv.number}: $${due.toLocaleString()} due by ${inv.dueOn}.` : `Amount due: $${due.toLocaleString()}.`} The chatroom
+        opens for you and {role === "customer" ? company : "the customer"} as soon as the payment is confirmed.
+      </p>
+
+      {role === "customer" ? (
+        order.paymentRef ? (
+          <p role="status" style={{ fontSize: "13px", color: "var(--success-text)" }}>
+            You told {company} you paid (ref {order.paymentRef}). Waiting for them to confirm.
+          </p>
+        ) : (
+          <>
+            <p style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
+              Pay {company} by bank transfer or UPI, then enter the payment reference here.
+            </p>
+            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+              <input
+                aria-label="Payment reference"
+                placeholder="UTR or UPI reference"
+                value={reference}
+                onChange={(e) => setReference(e.target.value)}
+                style={{ ...field, flex: "1 1 200px" }}
+              />
+              <button className="btn-primary" style={{ padding: "8px 16px", fontSize: "13px" }} onClick={() => void sendRef()}>
+                I have paid
+              </button>
+            </div>
+          </>
+        )
+      ) : (
+        <>
+          <p style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
+            {order.paymentRef
+              ? `The customer says they paid on ${order.paymentSentOn ?? "today"} (ref ${order.paymentRef}). Check your account, then confirm.`
+              : "The customer hasn't paid yet."}
+          </p>
+          {(role === "company" || role === "admin") && (
+            <div>
+              <button className="btn-primary" style={{ padding: "8px 16px", fontSize: "13px" }} onClick={() => void confirm()}>
+                Confirm payment received
+              </button>
+            </div>
+          )}
+        </>
+      )}
+      {problems.length > 0 && (
+        <p role="alert" style={{ fontSize: "12.5px", color: "var(--danger-text)" }}>
+          {problems.join(" ")}
+        </p>
+      )}
+    </section>
   );
 }
 
@@ -676,7 +793,7 @@ function BidActions({ order, bid, role }: { order: Order; bid: Bid; role: Role }
 }
 
 function Bids({ order, role }: { order: Order; role: Role }) {
-  const [form, setForm] = useState({ company: "", price: "", days: "", scope: "", discount: "" });
+  const [form, setForm] = useState({ company: "", price: "", days: "", scope: "", discount: "", date: "" });
   const open = order.status === "enquiry";
   const live = order.bids.filter((b) => b.status !== "withdrawn");
   return (
@@ -725,6 +842,7 @@ function Bids({ order, role }: { order: Order; role: Role }) {
                       </span>
                     ) : null}
                     {" "}· {b.days} day(s)
+                    {b.proposedDate && ` · inspects ${b.proposedDate}`}
                     {b.scope && ` · ${b.scope}`}
                   </div>
                   {last?.by === "customer" && b.status === "open" && (
@@ -763,8 +881,9 @@ function Bids({ order, role }: { order: Order; role: Role }) {
               days: Number(form.days) || 1,
               scope: form.scope.trim(),
               discountPct: discount || undefined,
+              proposedDate: form.date || undefined,
             }));
-            setForm({ company: "", price: "", days: "", scope: "", discount: "" });
+            setForm({ company: "", price: "", days: "", scope: "", discount: "", date: "" });
           }}
           style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: "8px" }}
         >
@@ -774,6 +893,7 @@ function Bids({ order, role }: { order: Order; role: Role }) {
           <input required type="number" min={1} aria-label="Price in USD" placeholder="Price (USD)" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} style={field} />
           <input type="number" min={0} max={99} aria-label="Discount in percent" placeholder="Discount % (optional)" value={form.discount} onChange={(e) => setForm({ ...form, discount: e.target.value })} style={field} />
           <input type="number" min={1} aria-label="Days" placeholder="Days" value={form.days} onChange={(e) => setForm({ ...form, days: e.target.value })} style={field} />
+          <input type="date" aria-label="Proposed inspection date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} style={field} />
           <input aria-label="Scope" placeholder="Scope (e.g. 2 surveyors, lab)" value={form.scope} onChange={(e) => setForm({ ...form, scope: e.target.value })} style={field} />
           <button type="submit" className="btn-primary" style={{ padding: "8px 14px", fontSize: "12.5px" }}>
             Submit bid
