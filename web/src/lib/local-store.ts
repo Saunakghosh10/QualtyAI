@@ -43,6 +43,8 @@ export interface Bid {
   status: "open" | "accepted" | "declined" | "withdrawn";
   /** Discount the company offers on priceUSD, in percent. */
   discountPct?: number;
+  /** What the customer pays for this bid; set when the database only sent the customer's figure. */
+  customerPriceUSD?: number;
   /** Negotiation history: every counter-offer from either side, oldest first. */
   rounds?: BidRound[];
   /** Date the company plans to follow up with the customer (YYYY-MM-DD). */
@@ -53,7 +55,10 @@ export interface Bid {
 
 export interface BidRound {
   by: "customer" | "company";
+  /** In the company's terms. */
   priceUSD: number;
+  /** Set when the database only sent the customer's figure. */
+  customerPriceUSD?: number;
   note: string;
   at: string;
 }
@@ -86,11 +91,17 @@ export interface Order {
   bids: Bid[];
   createdAt: string;
   completedAt?: string;
-  /** Agreed price (after discount), set when a quick booking or a bid is confirmed. */
+  /** Agreed price (after discount), set when a quick booking or a bid is confirmed. What the company is paid. */
   priceUSD?: number;
+  /** What the customer pays: the company's price plus the Qualty margin, unless the Qualty team set it by hand. */
+  customerPriceUSD?: number;
+  /** Group name the parties gave the chatroom. The order number is always kept next to it. */
+  roomName?: string;
   /** Service store listing the quick booking came from. */
   listingId?: string;
   invoice?: Invoice;
+  /** What companies see of the budget; set when the database only sent their figure. */
+  companyBudgetUSD?: number;
   /** Customer's budget for an enquiry, in USD. */
   budgetUSD?: number;
   /** Set when the invoice is fully paid. The chatroom opens from then on. */
@@ -99,6 +110,36 @@ export interface Order {
   paymentRef?: string;
   paymentSentOn?: string;
 }
+
+// ---------- Qualty margin ----------
+// Customers see company prices 30% higher; companies see customer budgets 30% lower.
+
+export const MARGIN_PCT = 30;
+/** What the customer pays for a company price. */
+export const customerPrice = (companyUSD: number) => Math.round(companyUSD * (1 + MARGIN_PCT / 100));
+/** The company price behind a customer price (used for customer counter-offers). */
+export const companyPrice = (customerUSD: number) => Math.round(customerUSD / (1 + MARGIN_PCT / 100));
+/**
+ * The budget companies see for a customer's enquiry budget. Deliberately 30% off the budget (Vinay, Nov 14),
+ * not budget / 1.3: a company bidding exactly what it sees leaves the customer price under budget.
+ */
+export const budgetForCompanies = (customerUSD: number) => Math.round(customerUSD * (1 - MARGIN_PCT / 100));
+
+/** Each side's figure. The database sends only the reader's side; local mode holds both. */
+export const listingCustomerPrice = (l: { priceUSD: number; discountPct: number; customerPriceUSD?: number }) =>
+  l.customerPriceUSD ?? customerPrice(bidNet(l));
+export const bidCustomerPrice = (b: Pick<Bid, "priceUSD" | "discountPct" | "customerPriceUSD">) =>
+  b.customerPriceUSD ?? customerPrice(bidNet(b));
+export const roundCustomerPrice = (r: Pick<BidRound, "priceUSD" | "customerPriceUSD">) =>
+  r.customerPriceUSD ?? customerPrice(r.priceUSD);
+export const orderCustomerPrice = (o: Partial<Pick<Order, "priceUSD" | "customerPriceUSD">>) =>
+  o.customerPriceUSD ?? (o.priceUSD == null ? undefined : customerPrice(o.priceUSD));
+export const orderCompanyBudget = (o: Partial<Pick<Order, "budgetUSD" | "companyBudgetUSD">>) =>
+  o.companyBudgetUSD ?? (o.budgetUSD == null ? undefined : budgetForCompanies(o.budgetUSD));
+
+/** Chatroom title: the group name if given, else the commodity, always with the order number. */
+export const roomTitle = (o: Pick<Order, "id" | "ref" | "commodity" | "roomName">) =>
+  `${o.roomName || o.commodity} · ${o.ref ?? o.id}`;
 
 /** The chatroom and evidence are open to the two parties only after payment. */
 export const roomOpen = (o: Pick<Order, "status" | "paidAt">) => o.status !== "enquiry" && !!o.paidAt;
@@ -315,7 +356,11 @@ export function createOrder(
   };
   const db = load();
   commit({ ...db, orders: [order, ...db.orders] });
-  if (input.mode === "quick" && order.priceUSD) autoInvoice(order.id, order.priceUSD);
+  if (input.mode === "quick" && order.priceUSD) {
+    const cp = customerPrice(order.priceUSD);
+    updateOrder(order.id, (x) => ({ ...x, customerPriceUSD: cp }));
+    autoInvoice(order.id, cp);
+  }
   systemMessage(
     order.id,
     input.mode === "quick"
@@ -335,8 +380,7 @@ export function describeSpec(s: CommodityParams) {
 export function submitBid(orderId: string, bid: Omit<Bid, "id" | "createdAt" | "status" | "rounds">) {
   const full: Bid = { ...bid, id: uid("bid"), createdAt: now(), status: "open", rounds: [] };
   updateOrder(orderId, (o) => ({ ...o, bids: [...o.bids, full] }));
-  const off = bid.discountPct ? ` (${bid.discountPct}% off $${bid.priceUSD.toLocaleString()})` : "";
-  systemMessage(orderId, `${bid.company} bid $${bidNet(bid).toLocaleString()}${off} for ${bid.days} day(s).`);
+  systemMessage(orderId, `${bid.company} placed a bid: ${bid.days} day(s). Prices are in each side's Bids panel.`);
   return full;
 }
 
@@ -349,15 +393,16 @@ export function acceptBid(orderId: string, bidId: string) {
     status: "booked",
     inspectionCompany: bid.company,
     priceUSD: bidNet(bid),
+    customerPriceUSD: customerPrice(bidNet(bid)),
     members: x.members.some((m) => m.role === "company")
       ? x.members
       : [...x.members.slice(0, 1), { role: "company", name: bid.company }, ...x.members.slice(1)],
     bids: x.bids.map((b) => ({ ...b, status: b.id === bidId ? "accepted" : b.status === "withdrawn" ? "withdrawn" : "declined" })),
   }));
-  autoInvoice(orderId, bidNet(bid));
+  autoInvoice(orderId, customerPrice(bidNet(bid)));
   systemMessage(
     orderId,
-    `Customer accepted ${bid.company}'s bid of $${bidNet(bid).toLocaleString()}. Invoice sent; the chatroom opens once payment is confirmed.`,
+    `Customer accepted ${bid.company}'s bid. Invoice sent; the chatroom opens once payment is confirmed.`,
   );
 }
 
@@ -373,10 +418,14 @@ const openBid = (orderId: string, bidId: string) => {
   return o && bid && o.status === "enquiry" && bid.status === "open" ? { o, bid } : null;
 };
 
-/** A counter-offer from either side. A company counter replaces its price; a customer counter is a request. */
-export function counterBid(orderId: string, bidId: string, by: BidRound["by"], priceUSD: number, note = "") {
+/**
+ * A counter-offer from either side. A company counter replaces its price; a customer counter is a request.
+ * Each side enters its own figure: the customer's is converted to the company price before it is stored.
+ */
+export function counterBid(orderId: string, bidId: string, by: BidRound["by"], entered: number, note = "") {
   const hit = openBid(orderId, bidId);
-  if (!hit || !(priceUSD > 0)) return;
+  if (!hit || !(entered > 0)) return;
+  const priceUSD = by === "customer" ? companyPrice(entered) : entered;
   const round: BidRound = { by, priceUSD, note: note.trim(), at: now() };
   updateBid(orderId, bidId, (b) => ({
     ...b,
@@ -384,8 +433,8 @@ export function counterBid(orderId: string, bidId: string, by: BidRound["by"], p
     rounds: [...(b.rounds ?? []), round],
   }));
   const who = by === "company" ? hit.bid.company : "The customer";
-  const ask = by === "company" ? "revised the bid to" : `asked ${hit.bid.company} for`;
-  systemMessage(orderId, `${who} ${ask} $${priceUSD.toLocaleString()}.${round.note ? ` Note: ${round.note}` : ""}`);
+  const ask = by === "company" ? "revised the bid" : `asked ${hit.bid.company} for a lower price`;
+  systemMessage(orderId, `${who} ${ask}.${round.note ? ` Note: ${round.note}` : ""}`);
 }
 
 /** Company gives a discount on its open bid. */
@@ -393,8 +442,7 @@ export function discountBid(orderId: string, bidId: string, discountPct: number)
   const hit = openBid(orderId, bidId);
   if (!hit || discountPct < 0 || discountPct >= 100) return;
   updateBid(orderId, bidId, (b) => ({ ...b, discountPct }));
-  const net = bidNet({ priceUSD: hit.bid.priceUSD, discountPct });
-  systemMessage(orderId, `${hit.bid.company} gave ${discountPct}% off: bid is now $${net.toLocaleString()}.`);
+  systemMessage(orderId, `${hit.bid.company} gave a ${discountPct}% discount on its bid.`);
 }
 
 export function setFollowUp(orderId: string, bidId: string, date: string) {
@@ -629,7 +677,20 @@ export const SERVICES = [
   "Loading & Unloading Supervision",
   "Container Stuffing Survey",
   "Destination Cargo Inspection",
+  "ECTN (Electronic Cargo Tracking Note)",
+  "CoC (Certificate of Conformity)",
+  "Customs Import Control",
 ] as const;
+
+/** Location for services sold at one rate everywhere in India. */
+export const ALL_INDIA = "All India";
+
+/** Standard certificate services: one fixed rate across India, set by Qualty (company price, USD). */
+export const STANDARD_RATES: Partial<Record<string, number>> = {
+  "ECTN (Electronic Cargo Tracking Note)": 120,
+  "CoC (Certificate of Conformity)": 350,
+  "Customs Import Control": 250,
+};
 
 export interface ServiceListing {
   id: string;
@@ -650,6 +711,8 @@ export interface ServiceListing {
   createdAt: string;
   /** The company's KYC has been checked by the Qualty team. */
   companyVerified?: boolean;
+  /** Set when the database only sent the customer's figure (public store). */
+  customerPriceUSD?: number;
 }
 
 export const listingNet = (l: Pick<ServiceListing, "priceUSD" | "discountPct">) =>
@@ -660,6 +723,10 @@ export function listingProblems(l: Omit<ServiceListing, "id" | "createdAt" | "co
   if (!l.service.trim()) p.push("Pick a service.");
   if (!l.location.trim()) p.push("Add the port or city.");
   if (!(l.priceUSD > 0)) p.push("Price must be more than $0.");
+  // Standard certificate services sell at one rate at every location in India, with no discount.
+  const rate = STANDARD_RATES[l.service];
+  if (rate != null && (l.priceUSD !== rate || l.discountPct !== 0))
+    p.push(`${l.service} has a standard rate of $${rate} across India.`);
   if (l.discountPct < 0 || l.discountPct >= 100) p.push("Discount must be between 0 and 99%.");
   if (!(l.turnaroundDays >= 1)) p.push("Turnaround must be at least 1 day.");
   if (!(l.surveyors >= 1)) p.push("At least 1 surveyor must be available.");
@@ -696,7 +763,7 @@ export function deleteListing(id: string) {
 
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 
-/** Listings a customer can quick-book: matching service, place, date and budget; cheapest first. */
+/** Listings a customer can quick-book: matching service, place, date and budget (customer prices); cheapest first. */
 export function findListings(
   listings: ServiceListing[],
   q: { service: string; location: string; date: string; commodity?: string; maxPriceUSD?: number },
@@ -706,10 +773,10 @@ export function findListings(
   return listings
     .filter((l) => l.active && l.service === q.service)
     .filter((l) => !q.date || (l.availableFrom <= q.date && q.date <= l.availableTo))
-    .filter((l) => place.length === 0 || place.some((w) => norm(l.location).includes(w)))
+    .filter((l) => place.length === 0 || l.location === ALL_INDIA || place.some((w) => norm(l.location).includes(w)))
     .filter((l) => !commodity || l.commodities.length === 0 || l.commodities.some((c) => commodity.includes(norm(c))))
-    .filter((l) => !q.maxPriceUSD || listingNet(l) <= q.maxPriceUSD)
-    .sort((a, b) => listingNet(a) - listingNet(b));
+    .filter((l) => !q.maxPriceUSD || listingCustomerPrice(l) <= q.maxPriceUSD)
+    .sort((a, b) => listingCustomerPrice(a) - listingCustomerPrice(b));
 }
 
 // ---------- Payments ----------
@@ -781,7 +848,7 @@ export function raiseInvoice(orderId: string, input: { amountUSD: number; discou
     payments: [],
   };
   updateOrder(orderId, (x) => ({ ...x, invoice }));
-  systemMessage(orderId, `Invoice ${invoice.number} raised for $${invoiceTotal(invoice).toLocaleString()}, due ${input.dueOn}.`);
+  systemMessage(orderId, `Invoice ${invoice.number} raised, due ${input.dueOn}.`);
   return [];
 }
 
@@ -800,8 +867,32 @@ export function recordPayment(orderId: string, p: Omit<Payment, "id">): string[]
   }));
   systemMessage(
     orderId,
-    `Payment of $${p.amountUSD.toLocaleString()} received (${p.method}${p.reference ? `, ref ${p.reference}` : ""}). ${left > 0 ? `$${left.toLocaleString()} still due.` : "Payment confirmed. Chatroom opened for the customer and the inspection company."}`,
+    `Payment received (${p.method}${p.reference ? `, ref ${p.reference}` : ""}). ${left > 0 ? "Part of the invoice is still due." : "Payment confirmed. Chatroom opened for the customer and the inspection company."}`,
   );
+  return [];
+}
+
+/** The Qualty team sets the customer's price by hand, never below the company's, and only before payment starts. */
+export function setCustomerPrice(orderId: string, priceUSD: number): string[] {
+  const o = getOrder(orderId);
+  if (!o || o.priceUSD == null) return ["This order has no agreed price yet."];
+  if (!(priceUSD >= o.priceUSD)) return [`The customer price can't be below the company's $${o.priceUSD.toLocaleString()}.`];
+  if (o.invoice?.payments.length) return ["Payment has started on this invoice, so its price is fixed."];
+  updateOrder(orderId, (x) => ({
+    ...x,
+    customerPriceUSD: priceUSD,
+    ...(x.invoice ? { invoice: { ...x.invoice, amountUSD: priceUSD, discountPct: 0 } } : {}),
+  }));
+  return [];
+}
+
+/** Give the chatroom a group name. An empty name goes back to the default. */
+export function renameRoom(orderId: string, name: string): string[] {
+  const clean = name.trim().replace(/\s+/g, " ");
+  if (clean.length > 60) return ["Keep the group name under 60 characters."];
+  if (!getOrder(orderId)) return ["Order not found."];
+  updateOrder(orderId, (x) => ({ ...x, roomName: clean || undefined }));
+  systemMessage(orderId, clean ? `Group renamed to ${clean}.` : "Group name cleared.");
   return [];
 }
 

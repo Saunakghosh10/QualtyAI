@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useRouter } from "next/navigation";
 import {
   X,
   CheckCircle,
@@ -16,7 +17,7 @@ import {
   FileText,
 } from "@phosphor-icons/react";
 import { CommodityParams } from "./CommodityCalibrator";
-import { useDB, useSession, isRemote, specLabel, checkParty, createOrder, findListings, listingNet, orderRef } from "@/lib/store";
+import { useDB, useSession, isRemote, specLabel, checkParty, createOrder, findListings, listingNet, listingCustomerPrice, customerPrice, orderRef } from "@/lib/store";
 import { run } from "@/lib/notify";
 
 interface BookingModalProps {
@@ -41,6 +42,7 @@ export default function BookingModal({
   initialLocation,
   initialMode,
 }: BookingModalProps) {
+  const router = useRouter();
   const [bookingMode, setBookingMode] = useState<"quick" | "inquiry">("quick");
   const [step, setStep] = useState<number>(1);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
@@ -57,7 +59,8 @@ export default function BookingModal({
     commodity: "Rice (1121 Basmati)",
     volumeTons: 2500,
     jobDurationDays: 3,
-    inspectionDate: "2026-11-05",
+    // Empty until the customer picks one: the form uses tomorrow (or the picked company's first day) instead.
+    inspectionDate: "",
     endDate: "2026-11-08",
     targetBudgetUSD: 1800,
     companyName: "CargoFirst Global Trading FZE",
@@ -83,23 +86,34 @@ export default function BookingModal({
     setSeenListing(initialListingId);
     // "<listing id>#<n>": n changes on every pick from the store so picking the same company again re-seeds.
     const picked = initialListingId?.split("#")[0];
-    if (picked) setListingId(picked);
+    setListingId(picked || null);
+    const from = listings.find((l) => l.id === picked)?.availableFrom;
+    if (from) setFormData((prev) => (prev.inspectionDate && prev.inspectionDate < from ? { ...prev, inspectionDate: from } : prev));
     if (initialLocation) setFormData((prev) => ({ ...prev, portLocation: initialLocation }));
     if (initialMode) {
       setBookingMode(initialMode);
-      setFormData((prev) => ({ ...prev, bookingType: initialMode }));
+      setFormData((prev) => ({
+        ...prev,
+        bookingType: initialMode,
+        jobDurationDays: initialMode === "quick" ? 3 : 8,
+        targetBudgetUSD: initialMode === "quick" ? 650 : 2500,
+      }));
     }
   }
   // Company store listings that fit this booking; cheapest is picked unless the customer chooses.
+  const today = useToday();
+  const pickedFrom = listings.find((l) => l.id === listingId)?.availableFrom ?? "";
+  const tomorrow = today ? nextDay(today) : "";
+  const inspectionDate = formData.inspectionDate || (pickedFrom > tomorrow ? pickedFrom : tomorrow);
   const matches = useMemo(
     () =>
       findListings(listings, {
         service: formData.serviceName,
         location: formData.portLocation,
-        date: formData.inspectionDate,
+        date: inspectionDate,
         commodity: formData.commodity,
       }),
-    [listings, formData.serviceName, formData.portLocation, formData.inspectionDate, formData.commodity],
+    [listings, formData.serviceName, formData.portLocation, inspectionDate, formData.commodity],
   );
   const chosen = listingId === "" && !isRemote ? null : (matches.find((l) => l.id === listingId) ?? matches[0] ?? null);
   const [spec, setSpec] = useState<CommodityParams | null>(null);
@@ -185,7 +199,7 @@ export default function BookingModal({
       buyer: buyer.party,
       seller: seller.party,
       location: formData.portLocation,
-      inspectionDate: formData.inspectionDate,
+      inspectionDate,
       volumeTons: formData.volumeTons,
       customerName: `${formData.contactName} (${formData.companyName})`,
       ...(bookingMode === "quick"
@@ -203,9 +217,13 @@ export default function BookingModal({
   const openChatroom = () => {
     const id = submittedId;
     handleReset();
-    if (id) {
+    if (!id) return;
+    const rooms = document.getElementById("orders");
+    if (rooms) {
       window.dispatchEvent(new CustomEvent("qualty:open-order", { detail: id }));
-      document.getElementById("orders")?.scrollIntoView({ behavior: "smooth" });
+      rooms.scrollIntoView({ behavior: "smooth" });
+    } else {
+      router.push(`/rooms?order=${encodeURIComponent(id)}`);
     }
   };
 
@@ -330,13 +348,13 @@ export default function BookingModal({
             </div>
 
             <h4 className="font-heading" style={{ fontSize: "22px", fontWeight: 700, color: "var(--text-main)", marginBottom: "8px" }}>
-              {bookingMode === "quick" ? "Quick Inspection Booked!" : "Inquiry Published for Bidding!"}
+              {bookingMode === "quick" ? "Inspection booked" : "Enquiry sent to companies"}
             </h4>
 
             <p style={{ fontSize: "14px", color: "var(--text-secondary)", marginBottom: "20px", maxWidth: "460px", margin: "0 auto 20px" }}>
               {bookingMode === "quick"
-                ? `The inspection company has your order and an invoice is waiting in the order. Pay it, enter the payment reference, and the chatroom opens for you and the company.`
-                : `Inspection companies can now bid on your enquiry. Compare bids in the order chatroom and accept the one you want.`}
+                ? `Your invoice is ready. Pay the invoice in your chatroom page; the Qualty team confirms the payment and the chat opens with the inspection company.`
+                : `Inspection companies that cover the port can now bid. Compare their bids in your chatroom page and accept the one you want.`}
             </p>
 
             <div
@@ -634,7 +652,7 @@ type="number"
                     <input
                       id="booking-field-6"
 type="date"
-                      value={formData.inspectionDate}
+                      value={inspectionDate}
                       onChange={(e) => setFormData({ ...formData, inspectionDate: e.target.value })}
                       style={{
                         width: "100%",
@@ -685,9 +703,9 @@ type="number"
                     {[...matches.map((l) => ({
                       id: l.id,
                       name: l.companyName,
-                      detail: `${l.surveyors} surveyor(s) in ${l.location} · ${l.turnaroundDays} day turnaround${l.discountPct ? ` · ${l.discountPct}% off $${l.priceUSD.toLocaleString()}` : ""}`,
-                      price: listingNet(l),
-                    })), ...(isRemote ? [] : [{ id: "", name: "Qualty partner surveyors", detail: "Standard rate, nearest certified surveyor we can dispatch", price: 650 }])].map((opt) => {
+                      detail: `${l.surveyors} surveyor(s) in ${l.location} · ${l.turnaroundDays} day turnaround`,
+                      price: listingCustomerPrice(l),
+                    })), ...(isRemote ? [] : [{ id: "", name: "Qualty partner surveyors", detail: "Standard rate, nearest certified surveyor we can dispatch", price: customerPrice(650) }])].map((opt) => {
                       const on = (chosen?.id ?? "") === opt.id;
                       return (
                         <label
@@ -717,14 +735,15 @@ type="number"
                   </div>
                 ) : (
                   <div>
-                    <label htmlFor="booking-field-8" style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-main)", display: "block", marginBottom: "6px" }}>
-                      Target Inquiry Budget (USD) — Providers will bid between $500 to $5,000+
+                    <label htmlFor="booking-budget" style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-main)", display: "block", marginBottom: "6px" }}>
+                      Your budget (USD)
                     </label>
                     <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
                       <span className="font-mono" style={{ fontSize: "15px", fontWeight: 700, color: "var(--text-secondary)" }}>
                         $
                       </span>
                       <input
+                        id="booking-budget"
                         type="number"
                         step="100"
                         min="500"
@@ -746,7 +765,7 @@ type="number"
                 )}
 
                 <div>
-                  <label style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-main)", display: "block", marginBottom: "6px" }}>
+                  <label htmlFor="booking-field-8" style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-main)", display: "block", marginBottom: "6px" }}>
                     Special Field Instructions / Hold Access Notes
                   </label>
                   <textarea
@@ -941,3 +960,12 @@ function AccountGate() {
     </div>
   );
 }
+
+const noop = () => () => {};
+/** Today's date, read only in the browser (the page is prerendered without it). */
+const useToday = () => useSyncExternalStore(noop, () => new Date().toISOString().slice(0, 10), () => "");
+const nextDay = (d: string) => {
+  const t = new Date(`${d}T00:00:00Z`);
+  t.setUTCDate(t.getUTCDate() + 1);
+  return t.toISOString().slice(0, 10);
+};

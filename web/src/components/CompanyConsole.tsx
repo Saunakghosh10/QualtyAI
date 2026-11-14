@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { createContext, useContext, useState } from "react";
 import {
   Buildings,
   ClipboardText,
@@ -11,6 +11,9 @@ import {
   IdentificationCard,
   UsersThree,
   MagnifyingGlass,
+  ShieldCheck,
+  ArrowSquareOut,
+  Plus,
 } from "@phosphor-icons/react";
 import {
   useDB,
@@ -50,6 +53,13 @@ import {
   removeCompliance,
   complianceState,
   uncoveredCertTypes,
+  setCustomerPrice,
+  customerPrice,
+  orderCustomerPrice,
+  orderCompanyBudget,
+  STANDARD_RATES,
+  ALL_INDIA,
+  MARGIN_PCT,
   type Area,
   type Company,
   type KycDocType,
@@ -62,6 +72,7 @@ import {
   type CertCheck,
 } from "@/lib/store";
 import { run } from "@/lib/notify";
+import { useViewer } from "@/lib/viewer";
 
 /** Awaits a save that returns problems; a thrown error becomes one problem. */
 const problemsOf = async (p: Promise<string[]>) => (await run(p)) ?? ["Couldn't save. Check your connection and try again."];
@@ -99,12 +110,14 @@ const linkBtn: React.CSSProperties = {
   textDecoration: "underline",
 };
 /** Orders assigned to this company: by id on the backend, by name in the demo. */
-const isOurs = (o: Order, c: Company) => (o.companyId !== undefined ? o.companyId === c.id : o.inspectionCompany === c.name);
-const usd = (n: number) => `$${n.toLocaleString()}`;
+export const isOurs = (o: Order, c: Company) => (o.companyId !== undefined ? o.companyId === c.id : o.inspectionCompany === c.name);
+export const usd = (n: number) => `$${n.toLocaleString()}`;
+const visuallyHidden: React.CSSProperties = { position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)", whiteSpace: "nowrap" };
+const money: React.CSSProperties = { fontVariantNumeric: "tabular-nums" };
 const today = () => new Date().toISOString().slice(0, 10);
 
-type Tone = "good" | "warn" | "bad" | "muted";
-function Pill({ tone, children }: { tone: Tone; children: React.ReactNode }) {
+export type Tone = "good" | "warn" | "bad" | "muted";
+export function Pill({ tone, children }: { tone: Tone; children: React.ReactNode }) {
   const c = {
     good: ["var(--success-bg)", "var(--success-text)", "var(--success-border)"],
     warn: ["var(--warning-bg)", "var(--warning-text)", "var(--warning-border)"],
@@ -145,42 +158,186 @@ const Empty = ({ children }: { children: React.ReactNode }) => (
   <p style={{ fontSize: "13px", color: "var(--text-muted)", padding: "14px", border: "1px dashed var(--border-main)", borderRadius: "10px" }}>{children}</p>
 );
 
+/** A console tab: a team area, or the Qualty team's own view (admins and the demo only). */
+export type ConsoleTab = Area | "qualty";
+
 const TABS: { area: Area; label: string; icon: React.ReactNode }[] = [
-  { area: "orders", label: "Orders", icon: <ClipboardText size={16} /> },
   { area: "enquiries", label: "Enquiries", icon: <MagnifyingGlass size={16} /> },
+  { area: "orders", label: "Orders", icon: <ClipboardText size={16} /> },
   { area: "store", label: "Service store", icon: <Storefront size={16} /> },
-  { area: "payments", label: "Payments", icon: <Receipt size={16} /> },
+  { area: "payments", label: "Payouts", icon: <Receipt size={16} /> },
   { area: "certificates", label: "Certificates", icon: <CertIcon size={16} /> },
-  { area: "compliance", label: "Compliance", icon: <SealCheck size={16} /> },
+  { area: "compliance", label: "Accreditations", icon: <SealCheck size={16} /> },
   { area: "kyc", label: "KYC", icon: <IdentificationCard size={16} /> },
   { area: "team", label: "Team", icon: <UsersThree size={16} /> },
 ];
+const QUALTY_TAB = { area: "qualty" as const, label: "Qualty team", icon: <ShieldCheck size={16} /> };
+
+/** On /dashboard chats open in their own tab at /rooms; on the homepage they open in the order rooms below. */
+const RoomsInNewTab = createContext(false);
 
 const openChatroom = (id: string) => {
   window.dispatchEvent(new CustomEvent("qualty:open-order", { detail: id }));
   document.getElementById("orders")?.scrollIntoView({ behavior: "smooth" });
 };
 
-export default function CompanyConsole() {
+function ChatAction({ orderId, label, roomLabel }: { orderId: string; label: string; roomLabel?: string }) {
+  const newTab = useContext(RoomsInNewTab);
+  if (newTab)
+    return (
+      <a href={`/rooms?order=${encodeURIComponent(orderId)}`} target="_blank" rel="noopener noreferrer" style={{ ...linkBtn, display: "inline-flex", alignItems: "center", gap: "4px" }}>
+        {roomLabel ?? label}
+        <ArrowSquareOut size={13} aria-hidden="true" />
+        <span style={visuallyHidden}> (opens in a new tab)</span>
+      </a>
+    );
+  return (
+    <button style={linkBtn} onClick={() => openChatroom(orderId)}>
+      {label}
+    </button>
+  );
+}
+
+/** The companies the signed-in person works for (admins see all; the demo has one) and the one picked. */
+export function useMyCompanies() {
   const db = useDB();
   const { session, ready } = useSession();
   const isAdmin = session?.appRole === "admin";
-  // On the backend you see the companies you belong to (admins see all); the demo has one.
   const mine = isRemote
     ? db.companies.filter((c) => isAdmin || db.team.some((m) => m.companyId === c.id && m.userId === session?.userId && m.status === "active"))
     : db.companies.slice(0, 1);
   const [companyId, setCompanyId] = useState<string | null>(null);
   const company = mine.find((c) => c.id === companyId) ?? mine[0] ?? null;
-  const team = company ? db.team.filter((m) => m.companyId === company.id) : [];
+  return { mine, company, setCompanyId, session, ready, isAdmin };
+}
+
+export const CompanySwitcher = ({ mine, company, onChange }: { mine: Company[]; company: Company; onChange: (id: string) => void }) =>
+  mine.length > 1 ? (
+    <select aria-label="Company" value={company.id} onChange={(e) => onChange(e.target.value)} style={{ ...field, maxWidth: "220px" }}>
+      {mine.map((c) => (
+        <option key={c.id} value={c.id}>{c.name}</option>
+      ))}
+    </select>
+  ) : null;
+
+/**
+ * The tabbed console for one company. `identity` shows the company name and KYC in its header
+ * (the homepage); the dashboard draws its own header and passes `identity={false}`.
+ */
+export function ConsoleCard({
+  company,
+  mine = [company],
+  onCompanyChange,
+  identity = true,
+  roomsInNewTab = false,
+}: {
+  company: Company;
+  mine?: Company[];
+  onCompanyChange?: (id: string) => void;
+  identity?: boolean;
+  roomsInNewTab?: boolean;
+}) {
+  const db = useDB();
+  const { session } = useSession();
+  const kind = useViewer().kind;
+  const isAdmin = session?.appRole === "admin";
+  const team = db.team.filter((m) => m.companyId === company.id);
   const [viewerId, setViewerId] = useState<string | null>(null);
   const me = isRemote ? team.find((m) => m.userId === session?.userId && m.status === "active") : null;
   const viewer = isRemote
     ? (me ?? (isAdmin ? ({ id: "admin", role: "owner", name: "Qualty admin" } as const) : null))
     : (team.find((m) => m.id === viewerId) ?? team.find((m) => m.role === "owner") ?? null);
   const role: TeamRole = viewer?.role ?? "owner";
-  const tabs = TABS.filter((t) => canAccess(role, t.area));
-  const [tab, setTab] = useState<Area>("orders");
+  const tabs: { area: ConsoleTab; label: string; icon: React.ReactNode }[] = TABS.filter((t) => canAccess(role, t.area));
+  if (kind === "admin" || kind === "demo") tabs.push(QUALTY_TAB);
+  const [tab, setTab] = useState<ConsoleTab>("enquiries");
   const current = tabs.some((t) => t.area === tab) ? tab : tabs[0].area;
+
+  const roleControl = isRemote ? (
+    <span>
+      {identity ? "You: " : "Your role: "}
+      {me ? (identity ? `${me.name} (${TEAM_ROLE_LABEL[me.role]})` : TEAM_ROLE_LABEL[me.role]) : isAdmin ? "Qualty admin" : "not on this team"}
+    </span>
+  ) : (
+    <label style={{ ...label, flexDirection: "row", alignItems: "center", gap: "6px", fontSize: "12px" }}>
+      Signed in as
+      <select value={viewer?.id ?? ""} onChange={(e) => setViewerId(e.target.value)} style={field}>
+        {team
+          .filter((m) => m.status === "active")
+          .map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.name} ({TEAM_ROLE_LABEL[m.role]})
+            </option>
+          ))}
+      </select>
+    </label>
+  );
+
+  return (
+    <RoomsInNewTab.Provider value={roomsInNewTab}>
+      <div className="card-shell" style={{ padding: 0, overflow: "hidden" }}>
+        <header style={{ padding: identity ? "16px 20px" : "10px 16px", borderBottom: "1px solid var(--border-main)", display: "flex", flexWrap: "wrap", justifyContent: identity ? "space-between" : "flex-end", alignItems: "center", gap: "12px" }}>
+          {identity && (
+            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              <Buildings size={22} color="var(--accent-primary)" />
+              <div>
+                <div style={{ fontSize: "16px", fontWeight: 700, color: "var(--text-main)" }}>{company.name}</div>
+                <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>
+                  KYC: <KycPill company={company} />
+                </div>
+              </div>
+            </div>
+          )}
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap", fontSize: "12.5px", color: "var(--text-secondary)" }}>
+            {onCompanyChange && <CompanySwitcher mine={mine} company={company} onChange={onCompanyChange} />}
+            {roleControl}
+          </div>
+        </header>
+        <div role="tablist" aria-label="Company console" style={{ display: "flex", gap: "4px", padding: "8px 12px", overflowX: "auto", borderBottom: "1px solid var(--border-main)", backgroundColor: "var(--bg-subtle)" }}>
+          {tabs.map((t) => (
+            <button
+              key={t.area}
+              role="tab"
+              aria-selected={current === t.area}
+              onClick={() => setTab(t.area)}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "6px",
+                padding: "8px 12px",
+                borderRadius: "8px",
+                fontSize: "13px",
+                fontWeight: 600,
+                whiteSpace: "nowrap",
+                cursor: "pointer",
+                border: `1px solid ${current === t.area ? "var(--accent-border)" : "transparent"}`,
+                backgroundColor: current === t.area ? "var(--accent-light)" : "transparent",
+                color: current === t.area ? "var(--accent-text)" : "var(--text-secondary)",
+              }}
+            >
+              {t.icon}
+              {t.label}
+            </button>
+          ))}
+        </div>
+        <div role="tabpanel" style={{ padding: "clamp(14px, 3vw, 20px)" }}>
+          {current === "orders" && <OrdersTab company={company} />}
+          {current === "enquiries" && <EnquiriesTab company={company} />}
+          {current === "store" && <StoreTab company={company} />}
+          {current === "payments" && <PayoutsTab company={company} />}
+          {current === "certificates" && <CertificatesTab company={company} />}
+          {current === "compliance" && <ComplianceTab company={company} />}
+          {current === "kyc" && <KycTab company={company} />}
+          {current === "team" && <TeamTab company={company} />}
+          {current === "qualty" && <QualtyTeamTab />}
+        </div>
+      </div>
+    </RoomsInNewTab.Provider>
+  );
+}
+
+export default function CompanyConsole() {
+  const { mine, company, setCompanyId, session, ready } = useMyCompanies();
 
   return (
     <section id="company" style={{ padding: "clamp(40px, 5vw, 64px) 20px", maxWidth: "1280px", margin: "0 auto" }}>
@@ -189,7 +346,7 @@ export default function CompanyConsole() {
           Run your inspection company here
         </h2>
         <p style={{ fontSize: "15px", color: "var(--text-secondary)", lineHeight: 1.6, marginTop: "10px", textWrap: "pretty" }}>
-          List your surveyors so customers can book you directly, bid on enquiries, send invoices, issue certificates customers can check, and
+          List your surveyors so customers can book you directly, bid on enquiries, track payouts, issue certificates customers can check, and
           keep your accreditations and KYC up to date. Your team sees only what their role needs.
         </p>
       </div>
@@ -221,89 +378,13 @@ export default function CompanyConsole() {
       ) : !company ? (
         <CompanySetup />
       ) : (
-        <div className="card-shell" style={{ padding: 0, overflow: "hidden" }}>
-          <header style={{ padding: "16px 20px", borderBottom: "1px solid var(--border-main)", display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: "12px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-              <Buildings size={22} color="var(--accent-primary)" />
-              <div>
-                <div style={{ fontSize: "16px", fontWeight: 700, color: "var(--text-main)" }}>{company.name}</div>
-                <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>
-                  KYC: <KycPill company={company} />
-                </div>
-              </div>
-            </div>
-            {isRemote ? (
-              <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap", fontSize: "12.5px", color: "var(--text-secondary)" }}>
-                {mine.length > 1 && (
-                  <select aria-label="Company" value={company.id} onChange={(e) => setCompanyId(e.target.value)} style={field}>
-                    {mine.map((c) => (
-                      <option key={c.id} value={c.id}>{c.name}</option>
-                    ))}
-                  </select>
-                )}
-                <span>
-                  You: {me ? `${me.name} (${TEAM_ROLE_LABEL[me.role]})` : isAdmin ? "Qualty admin" : "not on this team"}
-                </span>
-              </div>
-            ) : (
-            <label style={{ ...label, flexDirection: "row", alignItems: "center", gap: "6px", fontSize: "12px" }}>
-              Signed in as
-              <select value={viewer?.id ?? ""} onChange={(e) => setViewerId(e.target.value)} style={field}>
-                {team
-                  .filter((m) => m.status === "active")
-                  .map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.name} ({TEAM_ROLE_LABEL[m.role]})
-                    </option>
-                  ))}
-              </select>
-            </label>
-            )}
-          </header>
-          <div role="tablist" aria-label="Company console" style={{ display: "flex", gap: "4px", padding: "8px 12px", overflowX: "auto", borderBottom: "1px solid var(--border-main)", backgroundColor: "var(--bg-subtle)" }}>
-            {tabs.map((t) => (
-              <button
-                key={t.area}
-                role="tab"
-                aria-selected={current === t.area}
-                onClick={() => setTab(t.area)}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: "6px",
-                  padding: "8px 12px",
-                  borderRadius: "8px",
-                  fontSize: "13px",
-                  fontWeight: 600,
-                  whiteSpace: "nowrap",
-                  cursor: "pointer",
-                  border: `1px solid ${current === t.area ? "var(--accent-border)" : "transparent"}`,
-                  backgroundColor: current === t.area ? "var(--accent-light)" : "transparent",
-                  color: current === t.area ? "var(--accent-text)" : "var(--text-secondary)",
-                }}
-              >
-                {t.icon}
-                {t.label}
-              </button>
-            ))}
-          </div>
-          <div role="tabpanel" style={{ padding: "20px" }}>
-            {current === "orders" && <OrdersTab company={company} />}
-            {current === "enquiries" && <EnquiriesTab company={company} />}
-            {current === "store" && <StoreTab company={company} />}
-            {current === "payments" && <PaymentsTab company={company} />}
-            {current === "certificates" && <CertificatesTab company={company} />}
-            {current === "compliance" && <ComplianceTab company={company} />}
-            {current === "kyc" && <KycTab company={company} />}
-            {current === "team" && <TeamTab company={company} />}
-          </div>
-        </div>
+        <ConsoleCard company={company} mine={mine} onCompanyChange={isRemote ? setCompanyId : undefined} />
       )}
     </section>
   );
 }
 
-function KycPill({ company }: { company: Company }) {
+export function KycPill({ company }: { company: Company }) {
   const s = kycStatus(company);
   const map: Record<typeof s, [Tone, string]> = {
     "not-started": ["muted", "Not started"],
@@ -317,8 +398,17 @@ function KycPill({ company }: { company: Company }) {
 
 // ---------- Setup ----------
 
-function CompanySetup() {
-  const [f, setF] = useState({ name: "", owner: "", email: "", phone: "", address: "", gstin: "", pan: "" });
+export function CompanySetup({
+  title = "Set up your company",
+  hint = "You'll be the owner. You can add KYC documents and invite your team next.",
+  footer,
+}: {
+  title?: string;
+  hint?: string;
+  footer?: React.ReactNode;
+}) {
+  const { session } = useSession();
+  const [f, setF] = useState({ name: "", owner: session?.name ?? "", email: session?.email ?? "", phone: "", address: "", gstin: "", pan: "" });
   const [problems, setProblems] = useState<string[]>([]);
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: e.target.value });
   const submit = async (e: React.FormEvent) => {
@@ -333,7 +423,7 @@ function CompanySetup() {
   };
   return (
     <form onSubmit={submit} className="card-shell" style={{ padding: "24px", maxWidth: "760px" }}>
-      <Panel title="Set up your company" hint="You'll be the owner. You can add KYC documents and invite your team next.">
+      <Panel title={title} hint={hint}>
         <div style={grid}>
           <label style={label}>Company name<input value={f.name} onChange={set("name")} style={field} /></label>
           <label style={label}>Your name<input value={f.owner} onChange={set("owner")} style={field} /></label>
@@ -344,8 +434,9 @@ function CompanySetup() {
           <label style={label}>PAN (optional)<input value={f.pan} onChange={set("pan")} style={field} /></label>
         </div>
         <Problems list={problems} />
-        <div>
+        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "8px 16px" }}>
           <button type="submit" className="btn-primary" style={{ padding: "10px 20px", fontSize: "13.5px" }}>Create company</button>
+          {footer}
         </div>
       </Panel>
     </form>
@@ -381,19 +472,17 @@ function OrdersTab({ company }: { company: Company }) {
         shown.map((o) => (
           <div key={o.id} style={row}>
             <div>
-              <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+              <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
                 <span className="font-mono" style={{ fontSize: "13px", fontWeight: 700, color: "var(--text-main)" }}>{orderRef(o)}</span>
                 <Pill tone={ORDER_STATUS[o.status][0]}>{ORDER_STATUS[o.status][1]}</Pill>
-                {awaitingPayment(o) && (
-                  <Pill tone="warn">{o.paymentRef ? `Customer says paid (ref ${o.paymentRef})` : "Waiting for payment"}</Pill>
-                )}
+                {awaitingPayment(o) && <Pill tone="warn">Waiting for payment</Pill>}
               </div>
               <div style={{ fontSize: "12.5px", color: "var(--text-secondary)", marginTop: "2px" }}>
                 {o.service} · {o.commodity} · {o.location} · {o.inspectionDate}
-                {o.priceUSD ? ` · ${usd(o.priceUSD)}` : ""}
+                {o.priceUSD ? <span style={money}> · your payout {usd(o.priceUSD)}</span> : ""}
               </div>
             </div>
-            <button style={linkBtn} onClick={() => openChatroom(o.id)}>{awaitingPayment(o) ? "Open order" : "Open chatroom"}</button>
+            <ChatAction orderId={o.id} label={awaitingPayment(o) ? "Open order" : "Open chatroom"} roomLabel="Open chat" />
           </div>
         ))
       )}
@@ -421,10 +510,10 @@ function EnquiriesTab({ company }: { company: Company }) {
                 <span style={{ fontSize: "12.5px", color: "var(--text-secondary)" }}>
                   {o.service} · {o.commodity} · {o.volumeTons.toLocaleString()} t · {o.location} · {o.inspectionDate}
                 </span>
-                {o.budgetUSD !== undefined && (
-                  <span style={{ fontSize: "12px", color: "var(--text-secondary)" }}>Customer budget {usd(o.budgetUSD)}</span>
+                {orderCompanyBudget(o) !== undefined && (
+                  <span style={{ fontSize: "12px", color: "var(--text-secondary)", ...money }}>Budget {usd(orderCompanyBudget(o)!)}</span>
                 )}
-                <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>
+                <span style={{ fontSize: "12px", color: "var(--text-muted)", ...money }}>
                   {o.bids.length} bid(s){Number.isFinite(lowest) ? `, lowest ${usd(lowest)}` : ""}
                   {mine && `. Your bid: ${usd(bidNet(mine))}`}
                 </span>
@@ -435,7 +524,7 @@ function EnquiriesTab({ company }: { company: Company }) {
                   </Pill>
                 )}
               </div>
-              <button style={linkBtn} onClick={() => openChatroom(o.id)}>{mine ? "Negotiate" : "Place a bid"}</button>
+              <ChatAction orderId={o.id} label={mine ? "Negotiate" : "Place a bid"} />
             </div>
           );
         })
@@ -465,13 +554,16 @@ function StoreTab({ company }: { company: Company }) {
   const [f, setF] = useState(blankListing());
   const [editId, setEditId] = useState<string | null>(null);
   const [problems, setProblems] = useState<string[]>([]);
+  // Standard certificate services sold across India have one fixed rate: the price is locked to it.
+  const rate = STANDARD_RATES[f.service];
+  const allIndia = rate != null && f.location.trim() === ALL_INDIA;
   const toInput = () => ({
     companyId: company.id,
     service: f.service,
     commodities: f.commodities.split(",").map((c) => c.trim()).filter(Boolean),
     location: f.location,
-    priceUSD: Number(f.priceUSD),
-    discountPct: Number(f.discountPct) || 0,
+    priceUSD: allIndia ? rate : Number(f.priceUSD),
+    discountPct: allIndia ? 0 : Number(f.discountPct) || 0,
     turnaroundDays: Number(f.turnaroundDays),
     surveyors: Number(f.surveyors),
     availableFrom: f.availableFrom,
@@ -504,7 +596,8 @@ function StoreTab({ company }: { company: Company }) {
     });
   };
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setF({ ...f, [k]: e.target.value });
-  const preview = listingProblems(toInput()).length === 0 ? listingNet({ priceUSD: Number(f.priceUSD), discountPct: Number(f.discountPct) || 0 }) : null;
+  const draft = toInput();
+  const preview = listingProblems(draft).length === 0 ? listingNet(draft) : null;
 
   return (
     <Panel title="Your service store" hint="Customers booking a quick inspection see these listings when the service, port, date, commodity and budget match. Cheapest shows first.">
@@ -515,22 +608,60 @@ function StoreTab({ company }: { company: Company }) {
               {SERVICES.map((s) => <option key={s}>{s}</option>)}
             </select>
           </label>
-          <label style={label}>Port or city<input value={f.location} onChange={set("location")} placeholder="Mundra" style={field} /></label>
+          <label style={label}>Port or city<input value={f.location} onChange={set("location")} placeholder={rate != null ? ALL_INDIA : "Mundra"} list={rate != null ? "qualty-standard-locations" : undefined} style={field} /></label>
+          {rate != null && (
+            <datalist id="qualty-standard-locations">
+              <option value={ALL_INDIA} />
+            </datalist>
+          )}
           <label style={label}>Commodities (comma separated, blank = any)<input value={f.commodities} onChange={set("commodities")} placeholder="Rice, Wheat" style={field} /></label>
-          <label style={label}>Price (USD)<input type="number" min={1} value={f.priceUSD} onChange={set("priceUSD")} style={field} /></label>
-          <label style={label}>Discount %<input type="number" min={0} max={99} value={f.discountPct} onChange={set("discountPct")} placeholder="0" style={field} /></label>
+          <label style={label}>Price (USD)
+            <input
+              type="number"
+              min={1}
+              value={allIndia ? String(rate) : f.priceUSD}
+              onChange={set("priceUSD")}
+              readOnly={allIndia}
+              aria-describedby={allIndia ? "standard-rate-note" : undefined}
+              style={{ ...field, ...money, ...(allIndia ? { backgroundColor: "var(--bg-subtle)", color: "var(--text-secondary)" } : {}) }}
+            />
+          </label>
+          <label style={label}>Discount %
+            <input type="number" min={0} max={99} value={allIndia ? "" : f.discountPct} onChange={set("discountPct")} placeholder="0" disabled={allIndia} style={{ ...field, ...(allIndia ? { backgroundColor: "var(--bg-subtle)" } : {}) }} />
+          </label>
           <label style={label}>Turnaround (days)<input type="number" min={1} value={f.turnaroundDays} onChange={set("turnaroundDays")} style={field} /></label>
           <label style={label}>Surveyors available<input type="number" min={1} value={f.surveyors} onChange={set("surveyors")} style={field} /></label>
           <label style={label}>Available from<input type="date" value={f.availableFrom} onChange={set("availableFrom")} style={field} /></label>
           <label style={label}>Available until<input type="date" value={f.availableTo} onChange={set("availableTo")} style={field} /></label>
         </div>
+        {rate != null && (
+          <p id="standard-rate-note" style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "6px 10px", marginTop: "12px", fontSize: "12.5px", color: "var(--text-secondary)" }}>
+            {allIndia ? (
+              <>
+                <Pill tone="good">Standard rate across India</Pill>
+                <span style={money}>Every company sells {f.service} at {usd(rate)} when the location is {ALL_INDIA}.</span>
+              </>
+            ) : (
+              <>
+                <span style={money}>{f.service} has a standard rate of {usd(rate)} across India.</span>
+                <button type="button" style={linkBtn} onClick={() => setF({ ...f, location: ALL_INDIA, priceUSD: String(rate), discountPct: "" })}>
+                  Offer it in {ALL_INDIA}
+                </button>
+              </>
+            )}
+          </p>
+        )}
         <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "12px", marginTop: "12px" }}>
           <label style={{ ...label, flexDirection: "row", alignItems: "center", gap: "6px", fontSize: "12.5px" }}>
             <input type="checkbox" checked={f.active} onChange={(e) => setF({ ...f, active: e.target.checked })} /> Show to customers
           </label>
           <button type="submit" className="btn-primary" style={{ padding: "8px 16px", fontSize: "13px" }}>{editId ? "Save changes" : "Add listing"}</button>
           {editId && <button type="button" style={linkBtn} onClick={() => { setEditId(null); setF(blankListing()); setProblems([]); }}>Cancel</button>}
-          {preview !== null && <span style={{ fontSize: "12.5px", color: "var(--text-secondary)" }}>Customers pay {usd(preview)}</span>}
+          {preview !== null && (
+            <span style={{ fontSize: "12.5px", color: "var(--text-secondary)", ...money }}>
+              You get {usd(preview)}. Customers see {usd(customerPrice(preview))} (includes Qualty&apos;s {MARGIN_PCT}%)
+            </span>
+          )}
         </div>
         <Problems list={problems} />
       </form>
@@ -542,10 +673,11 @@ function StoreTab({ company }: { company: Company }) {
             <div>
               <div style={{ fontSize: "13.5px", fontWeight: 600, color: "var(--text-main)" }}>
                 {l.service} · {l.location} {!l.active && <Pill tone="muted">Hidden</Pill>}
+                {l.location === ALL_INDIA && STANDARD_RATES[l.service] != null && <Pill tone="good">Standard rate</Pill>}
               </div>
-              <div style={{ fontSize: "12.5px", color: "var(--text-secondary)", marginTop: "2px" }}>
+              <div style={{ fontSize: "12.5px", color: "var(--text-secondary)", marginTop: "2px", ...money }}>
                 {usd(listingNet(l))}
-                {l.discountPct > 0 && ` (${l.discountPct}% off ${usd(l.priceUSD)})`} · {l.turnaroundDays} day(s) · {l.surveyors} surveyor(s) ·{" "}
+                {l.discountPct > 0 && ` (${l.discountPct}% off ${usd(l.priceUSD)})`}, customers see {usd(customerPrice(listingNet(l)))} · {l.turnaroundDays} day(s) · {l.surveyors} surveyor(s) ·{" "}
                 {l.availableFrom} to {l.availableTo} · {l.commodities.length ? l.commodities.join(", ") : "Any commodity"}
               </div>
             </div>
@@ -560,7 +692,7 @@ function StoreTab({ company }: { company: Company }) {
   );
 }
 
-// ---------- Payments ----------
+// ---------- Payouts (companies) and the Qualty team's view ----------
 
 const PAY_STATUS: Record<PaymentStatus, [Tone, string]> = {
   "not-invoiced": ["muted", "Not invoiced"],
@@ -570,101 +702,219 @@ const PAY_STATUS: Record<PaymentStatus, [Tone, string]> = {
   overdue: ["bad", "Overdue"],
 };
 const METHODS: Payment["method"][] = ["Bank transfer", "UPI", "Card", "Letter of credit", "Other"];
+const plusDays = (d: number) => new Date(Date.now() + d * 86_400_000).toISOString().slice(0, 10);
 
-function PaymentsTab({ company }: { company: Company }) {
+function Figures({ items }: { items: [string, number, string][] }) {
+  return (
+    <div style={{ ...grid, gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))" }}>
+      {items.map(([k, v, c]) => (
+        <div key={k} style={{ ...row, display: "block" }}>
+          <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>{k}</div>
+          <div className="font-mono" style={{ fontSize: "20px", fontWeight: 700, color: c, ...money }}>{usd(v)}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Booked orders and what the company is owed. Qualty collects from the customer, so no invoice figures here. */
+function PayoutsTab({ company }: { company: Company }) {
   const db = useDB();
   const orders = db.orders.filter((o) => isOurs(o, company) && o.status !== "enquiry");
-  const totals = orders.reduce(
-    (t, o) => {
-      if (!o.invoice) return t;
-      const due = invoiceTotal(o.invoice);
-      const paid = invoicePaid(o.invoice);
-      t.billed += due;
-      t.received += paid;
-      if (paymentStatus(o) === "overdue") t.overdue += due - paid;
-      return t;
-    },
-    { billed: 0, received: 0, overdue: 0 },
-  );
+  const due = orders.filter((o) => o.paidAt).reduce((s, o) => s + (o.priceUSD ?? 0), 0);
+  const waiting = orders.filter((o) => !o.paidAt).reduce((s, o) => s + (o.priceUSD ?? 0), 0);
   return (
-    <Panel title="Payment tracking" hint="Raise an invoice once the customer has booked, then record each payment as it arrives.">
-      <div style={{ ...grid, gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))" }}>
-        {[
-          ["Billed", totals.billed, "var(--text-main)"],
-          ["Received", totals.received, "var(--success-text)"],
-          ["Outstanding", totals.billed - totals.received, "var(--warning-text)"],
-          ["Overdue", totals.overdue, "var(--danger-text)"],
-        ].map(([k, v, c]) => (
-          <div key={k as string} style={{ ...row, display: "block" }}>
-            <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>{k}</div>
-            <div className="font-mono" style={{ fontSize: "20px", fontWeight: 700, color: c as string, fontVariantNumeric: "tabular-nums" }}>{usd(v as number)}</div>
+    <Panel title="Payouts" hint="Qualty collects payment from the customer. Once the customer has paid, your payout for the job is due.">
+      <Figures
+        items={[
+          ["Payout due", due, "var(--success-text)"],
+          ["Waiting for customers", waiting, "var(--warning-text)"],
+        ]}
+      />
+      {orders.length === 0 ? (
+        <Empty>No booked orders yet. Payouts show here once a customer books you.</Empty>
+      ) : (
+        orders.map((o) => (
+          <div key={o.id} style={row}>
+            <div>
+              <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+                <span className="font-mono" style={{ fontSize: "13px", fontWeight: 700, color: "var(--text-main)" }}>{orderRef(o)}</span>
+                {o.paidAt ? <Pill tone="good">Customer paid, payout due</Pill> : <Pill tone="warn">Waiting for the customer&apos;s payment</Pill>}
+              </div>
+              <div style={{ fontSize: "12.5px", color: "var(--text-secondary)", marginTop: "2px" }}>
+                {o.service} · {o.commodity} · {o.inspectionDate}
+              </div>
+            </div>
+            <div style={{ textAlign: "right" }}>
+              <div style={{ fontSize: "11.5px", color: "var(--text-muted)" }}>Your payout</div>
+              <div className="font-mono" style={{ fontSize: "15px", fontWeight: 700, color: "var(--text-main)", ...money }}>{o.priceUSD != null ? usd(o.priceUSD) : "Not agreed"}</div>
+            </div>
           </div>
-        ))}
-      </div>
-      {orders.length === 0 ? <Empty>No booked orders to invoice yet.</Empty> : orders.map((o) => <PaymentRow key={o.id} order={o} />)}
+        ))
+      )}
     </Panel>
   );
 }
 
-function PaymentRow({ order }: { order: Order }) {
-  const [inv, setInv] = useState({ amount: String(order.priceUSD ?? ""), discount: "", due: "" });
-  const [pay, setPay] = useState({ amount: "", method: METHODS[0], reference: order.paymentRef ?? "", on: today() });
-  const [problems, setProblems] = useState<string[]>([]);
-  const [open, setOpen] = useState(false);
-  const status = paymentStatus(order);
+/** Every booked order with both prices, Qualty's margin and the invoice. Only the Qualty team (and the demo) see this. */
+/** The Qualty team's view on its own, for admins when no company exists yet. */
+export function QualtyTeamPanel() {
+  return (
+    <div className="card-shell" style={{ padding: "clamp(14px, 3vw, 20px)" }}>
+      <QualtyTeamTab />
+    </div>
+  );
+}
+
+function QualtyTeamTab() {
+  const db = useDB();
+  const orders = db.orders.filter((o) => o.status !== "enquiry");
+  const sum = (f: (o: Order) => number | undefined) => orders.reduce((s, o) => s + (f(o) ?? 0), 0);
+  const companyName = (o: Order) => db.companies.find((c) => c.id === o.companyId)?.name ?? o.inspectionCompany ?? "Unassigned";
+  return (
+    <Panel
+      title="Qualty team"
+      hint="All booked orders with the company's price and the customer's price. Set the customer price before payment starts, raise the invoice, and record payments as they arrive."
+    >
+      <Figures
+        items={[
+          ["Customer prices", sum(orderCustomerPrice), "var(--text-main)"],
+          ["Company payouts", sum((o) => o.priceUSD), "var(--text-secondary)"],
+          ["Qualty margin", sum((o) => (o.priceUSD == null ? 0 : (orderCustomerPrice(o) ?? 0) - o.priceUSD)), "var(--success-text)"],
+          ["Collected", sum((o) => (o.invoice ? invoicePaid(o.invoice) : 0)), "var(--accent-text)"],
+        ]}
+      />
+      {orders.length === 0 ? <Empty>No booked orders yet.</Empty> : orders.map((o) => <MarginRow key={o.id} order={o} company={companyName(o)} />)}
+    </Panel>
+  );
+}
+
+function Figure({ k, children }: { k: string; children: React.ReactNode }) {
+  return (
+    <div style={{ minWidth: 0 }}>
+      <dt style={{ fontSize: "11.5px", color: "var(--text-muted)" }}>{k}</dt>
+      <dd style={{ margin: "2px 0 0", fontSize: "13.5px", fontWeight: 600, color: "var(--text-main)", overflowWrap: "anywhere", ...money }}>{children}</dd>
+    </div>
+  );
+}
+
+function MarginRow({ order, company }: { order: Order; company: string }) {
   const i = order.invoice;
+  const cp = orderCustomerPrice(order);
+  const left = i ? invoiceTotal(i) - invoicePaid(i) : 0;
+  const status = paymentStatus(order);
+  const priceFixed = !!i?.payments.length;
+  const [open, setOpen] = useState<"price" | "invoice" | "payment" | null>(null);
+  const [price, setPrice] = useState("");
+  const [inv, setInv] = useState({ discount: "", due: plusDays(7) });
+  const [pay, setPay] = useState({ amount: "", method: METHODS[0], reference: "", on: today() });
+  const [problems, setProblems] = useState<string[]>([]);
+  const start = (what: NonNullable<typeof open>) => {
+    setProblems([]);
+    if (what === "price") setPrice(String(cp ?? ""));
+    if (what === "payment") setPay({ amount: String(left), method: METHODS[0], reference: order.paymentRef ?? "", on: today() });
+    setOpen(what);
+  };
+  const done = (p: string[]) => {
+    setProblems(p);
+    if (!p.length) setOpen(null);
+  };
+  const cancel = (
+    <button type="button" style={linkBtn} onClick={() => { setOpen(null); setProblems([]); }}>
+      Cancel
+    </button>
+  );
+  const formStyle: React.CSSProperties = { ...grid, marginTop: "12px", alignItems: "end" };
+
   return (
     <div style={{ ...row, display: "block" }}>
-      <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", gap: "10px", alignItems: "center" }}>
-        <div>
-          <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-            <span className="font-mono" style={{ fontSize: "13px", fontWeight: 700, color: "var(--text-main)" }}>{orderRef(order)}</span>
-            <Pill tone={PAY_STATUS[status][0]}>{PAY_STATUS[status][1]}</Pill>
-          </div>
-          <div style={{ fontSize: "12.5px", color: "var(--text-secondary)", marginTop: "2px" }}>
-            {order.buyer.name || order.service}
-            {i
-              ? ` · ${i.number} · ${usd(invoicePaid(i))} of ${usd(invoiceTotal(i))} paid · due ${i.dueOn}`
-              : order.priceUSD
-                ? ` · agreed ${usd(order.priceUSD)}`
-                : ""}
-            {order.paymentRef && !order.paidAt ? ` · customer says paid, ref ${order.paymentRef}` : ""}
-          </div>
+      <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", gap: "8px", alignItems: "center" }}>
+        <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap", minWidth: 0 }}>
+          <span className="font-mono" style={{ fontSize: "13px", fontWeight: 700, color: "var(--text-main)" }}>{orderRef(order)}</span>
+          <Pill tone={PAY_STATUS[status][0]}>{PAY_STATUS[status][1]}</Pill>
+          <span style={{ fontSize: "12.5px", color: "var(--text-secondary)" }}>{company}</span>
         </div>
-        {status !== "paid" && (
-          <button style={linkBtn} onClick={() => setOpen(!open)}>{open ? "Close" : i ? "Record payment" : "Raise invoice"}</button>
+        {open === null && (
+          <div style={{ display: "flex", gap: "14px", flexWrap: "wrap" }}>
+            {order.priceUSD != null && !priceFixed && <button style={linkBtn} onClick={() => start("price")}>Set customer price</button>}
+            {!i && <button style={linkBtn} onClick={() => start("invoice")}>Raise invoice</button>}
+            {i && status !== "paid" && <button style={linkBtn} onClick={() => start("payment")}>Record payment</button>}
+          </div>
         )}
       </div>
-      {open && !i && (
-        <form
-          onSubmit={async (e) => {
-            e.preventDefault();
-            const p = await problemsOf(raiseInvoice(order.id, { amountUSD: Number(inv.amount), discountPct: Number(inv.discount) || 0, dueOn: inv.due }));
-            setProblems(p);
-            if (!p.length) setOpen(false);
-          }}
-          style={{ ...grid, marginTop: "10px", alignItems: "end" }}
-        >
-          <label style={label}>Amount (USD)<input type="number" min={1} value={inv.amount} onChange={(e) => setInv({ ...inv, amount: e.target.value })} style={field} /></label>
-          <label style={label}>Discount %<input type="number" min={0} max={99} value={inv.discount} onChange={(e) => setInv({ ...inv, discount: e.target.value })} placeholder="0" style={field} /></label>
-          <label style={label}>Due on<input type="date" value={inv.due} onChange={(e) => setInv({ ...inv, due: e.target.value })} style={field} /></label>
-          <button type="submit" className="btn-primary" style={{ padding: "8px 14px", fontSize: "13px" }}>Raise invoice</button>
+      <dl style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: "10px 16px", margin: "12px 0 0" }}>
+        <Figure k="Company price">{order.priceUSD != null ? usd(order.priceUSD) : "Not agreed"}</Figure>
+        <Figure k="Customer price">{cp != null ? usd(cp) : "Not set"}</Figure>
+        <Figure k="Margin">
+          {cp != null && order.priceUSD != null ? (
+            <span style={{ color: "var(--success-text)" }}>
+              {usd(cp - order.priceUSD)}
+              {order.priceUSD > 0 && <span style={{ color: "var(--text-muted)", fontWeight: 500 }}> ({Math.round(((cp - order.priceUSD) / order.priceUSD) * 100)}%)</span>}
+            </span>
+          ) : (
+            "Not set"
+          )}
+        </Figure>
+        <Figure k="Invoice">{i ? `${usd(invoicePaid(i))} of ${usd(invoiceTotal(i))} paid` : "Not raised"}</Figure>
+        <Figure k="Customer's payment ref">
+          {order.paymentRef ? (
+            <span className="font-mono">
+              {order.paymentRef}
+              {order.paymentSentOn && <span style={{ color: "var(--text-muted)", fontWeight: 500, fontFamily: "inherit" }}> sent {order.paymentSentOn}</span>}
+            </span>
+          ) : (
+            <span style={{ color: "var(--text-muted)", fontWeight: 500 }}>None yet</span>
+          )}
+        </Figure>
+      </dl>
+      {i && (
+        <p style={{ fontSize: "12px", color: "var(--text-muted)", marginTop: "8px" }}>
+          {i.number}, issued {i.issuedOn}, due {i.dueOn}
+          {priceFixed && ". Payment has started, so the price is fixed."}
+        </p>
+      )}
+
+      {open === "price" && order.priceUSD != null && (
+        <form onSubmit={async (e) => { e.preventDefault(); done(await problemsOf(setCustomerPrice(order.id, Number(price)))); }} style={formStyle}>
+          <label style={label}>
+            Customer price (USD)
+            <input type="number" step="any" value={price} onChange={(e) => setPrice(e.target.value)} style={{ ...field, ...money }} />
+          </label>
+          <p style={{ fontSize: "12px", color: "var(--text-muted)", alignSelf: "center", ...money }}>
+            At least {usd(order.priceUSD)}, the company&apos;s price.{i ? " The invoice changes to match." : ""}
+          </p>
+          <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+            <button type="submit" className="btn-primary" style={{ padding: "8px 14px", fontSize: "13px" }}>Save price</button>
+            {cancel}
+          </div>
         </form>
       )}
-      {open && i && (
+      {open === "invoice" && (
         <form
           onSubmit={async (e) => {
             e.preventDefault();
-            const p = await problemsOf(recordPayment(order.id, { amountUSD: Number(pay.amount), method: pay.method, reference: pay.reference.trim(), receivedOn: pay.on }));
-            setProblems(p);
-            if (!p.length) {
-              setPay({ ...pay, amount: "", reference: "" });
-              setOpen(false);
-            }
+            done(await problemsOf(raiseInvoice(order.id, { amountUSD: cp ?? 0, discountPct: Number(inv.discount) || 0, dueOn: inv.due })));
           }}
-          style={{ ...grid, marginTop: "10px", alignItems: "end" }}
+          style={formStyle}
         >
-          <label style={label}>Amount (USD)<input type="number" min={0} step="any" value={pay.amount} onChange={(e) => setPay({ ...pay, amount: e.target.value })} placeholder={String(invoiceTotal(i) - invoicePaid(i))} style={field} /></label>
+          <p style={{ fontSize: "12.5px", color: "var(--text-secondary)", alignSelf: "center", ...money }}>Invoice for the customer price, {cp != null ? usd(cp) : "not set"}</p>
+          <label style={label}>Discount %<input type="number" min={0} max={99} value={inv.discount} onChange={(e) => setInv({ ...inv, discount: e.target.value })} placeholder="0" style={field} /></label>
+          <label style={label}>Due on<input type="date" value={inv.due} onChange={(e) => setInv({ ...inv, due: e.target.value })} style={field} /></label>
+          <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+            <button type="submit" className="btn-primary" style={{ padding: "8px 14px", fontSize: "13px" }}>Raise invoice</button>
+            {cancel}
+          </div>
+        </form>
+      )}
+      {open === "payment" && i && (
+        <form
+          onSubmit={async (e) => {
+            e.preventDefault();
+            done(await problemsOf(recordPayment(order.id, { amountUSD: Number(pay.amount), method: pay.method, reference: pay.reference.trim(), receivedOn: pay.on })));
+          }}
+          style={formStyle}
+        >
+          <label style={label}>Amount (USD)<input type="number" min={0} step="any" value={pay.amount} onChange={(e) => setPay({ ...pay, amount: e.target.value })} style={{ ...field, ...money }} /></label>
           <label style={label}>Method
             <select value={pay.method} onChange={(e) => setPay({ ...pay, method: e.target.value as Payment["method"] })} style={field}>
               {METHODS.map((m) => <option key={m}>{m}</option>)}
@@ -672,11 +922,14 @@ function PaymentRow({ order }: { order: Order }) {
           </label>
           <label style={label}>Reference (UTR, LC no.)<input value={pay.reference} onChange={(e) => setPay({ ...pay, reference: e.target.value })} style={field} /></label>
           <label style={label}>Received on<input type="date" value={pay.on} onChange={(e) => setPay({ ...pay, on: e.target.value })} style={field} /></label>
-          <button type="submit" className="btn-primary" style={{ padding: "8px 14px", fontSize: "13px" }}>Record payment</button>
+          <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+            <button type="submit" className="btn-primary" style={{ padding: "8px 14px", fontSize: "13px" }}>Record payment</button>
+            {cancel}
+          </div>
         </form>
       )}
       {i && i.payments.length > 0 && (
-        <ul style={{ margin: "8px 0 0", paddingLeft: "18px", fontSize: "12px", color: "var(--text-muted)" }}>
+        <ul style={{ margin: "8px 0 0", paddingLeft: "18px", fontSize: "12px", color: "var(--text-muted)", ...money }}>
           {i.payments.map((p) => (
             <li key={p.id}>
               {p.receivedOn}: {usd(p.amountUSD)} by {p.method}
@@ -744,7 +997,7 @@ function CertificatesTab({ company }: { company: Company }) {
         </div>
         {uncovered.includes(f.type) && (
           <p style={{ fontSize: "12.5px", color: "var(--warning-text)", marginTop: "10px" }}>
-            No valid accreditation in Compliance covers {f.type}. Add one there before issuing, or the customer may reject it.
+            No valid accreditation in Accreditations covers {f.type}. Add one there before issuing, or the customer may reject it.
           </p>
         )}
         <div style={{ marginTop: "12px" }}>
@@ -837,7 +1090,20 @@ export function CertificateCheck() {
   );
 }
 
-// ---------- Compliance ----------
+// ---------- Accreditations (compliance items) ----------
+
+export const ACCREDITATION_STATE: Record<ReturnType<typeof complianceState>, [Tone, string]> = {
+  valid: ["good", "Valid"],
+  expiring: ["warn", "Expires within 60 days"],
+  expired: ["bad", "Expired"],
+};
+
+/** The accreditations Indian inspection companies show most; one click fills the form. */
+const ACCREDITATION_PRESETS = [
+  { label: "NABL", name: "NABL accreditation (ISO/IEC 17025)", issuedBy: "NABL" },
+  { label: "NABCB", name: "NABCB accreditation", issuedBy: "NABCB" },
+  { label: "ISO/IEC 17020", name: "ISO/IEC 17020 inspection body", issuedBy: "NABCB" },
+];
 
 function ComplianceTab({ company }: { company: Company }) {
   const db = useDB();
@@ -847,13 +1113,29 @@ function ComplianceTab({ company }: { company: Company }) {
   const [file, setFile] = useState<File | null>(null);
   const [problems, setProblems] = useState<string[]>([]);
   const toggle = (t: CertType) => setF({ ...f, covers: f.covers.includes(t) ? f.covers.filter((x) => x !== t) : [...f.covers, t] });
-  const STATE: Record<ReturnType<typeof complianceState>, [Tone, string]> = { valid: ["good", "Valid"], expiring: ["warn", "Expires within 60 days"], expired: ["bad", "Expired"] };
-
   return (
-    <Panel title="Compliance" hint="Keep your accreditations and licences here (ISO 17020, Halal body approval, CoC programme). We warn you 60 days before one expires.">
+    <Panel
+      title="Accreditations"
+      hint="Show customers the accreditations and licences you hold, such as NABL, NABCB or ISO/IEC 17020. They appear on your profile, and we warn you 60 days before one expires."
+    >
       {uncovered.length > 0 && (
         <p style={{ fontSize: "12.5px", color: "var(--warning-text)" }}>Not covered by a valid approval: {uncovered.join(", ")}.</p>
       )}
+      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "8px" }}>
+        <span style={{ fontSize: "12.5px", color: "var(--text-secondary)" }}>Quick fill:</span>
+        {ACCREDITATION_PRESETS.map((a) => (
+          <button
+            key={a.label}
+            type="button"
+            className="btn-secondary"
+            style={{ padding: "6px 12px", fontSize: "12.5px", gap: "5px" }}
+            onClick={() => setF({ ...f, name: a.name, issuedBy: a.issuedBy })}
+          >
+            <Plus size={12} weight="bold" aria-hidden="true" />
+            {a.label}
+          </button>
+        ))}
+      </div>
       <form
         onSubmit={async (e) => {
           e.preventDefault();
@@ -884,12 +1166,12 @@ function ComplianceTab({ company }: { company: Company }) {
           </div>
         </fieldset>
         <div style={{ marginTop: "12px" }}>
-          <button type="submit" className="btn-primary" style={{ padding: "8px 16px", fontSize: "13px" }}>Add approval</button>
+          <button type="submit" className="btn-primary" style={{ padding: "8px 16px", fontSize: "13px" }}>Add accreditation</button>
         </div>
         <Problems list={problems} />
       </form>
       {items.length === 0 ? (
-        <Empty>No approvals added yet.</Empty>
+        <Empty>No accreditations added yet. Use quick fill above for NABL, NABCB or ISO/IEC 17020.</Empty>
       ) : (
         items.map((c) => {
           const s = complianceState(c);
@@ -898,7 +1180,7 @@ function ComplianceTab({ company }: { company: Company }) {
               <div>
                 <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
                   <span style={{ fontSize: "13.5px", fontWeight: 600, color: "var(--text-main)" }}>{c.name}</span>
-                  <Pill tone={STATE[s][0]}>{STATE[s][1]}</Pill>
+                  <Pill tone={ACCREDITATION_STATE[s][0]}>{ACCREDITATION_STATE[s][1]}</Pill>
                 </div>
                 <div style={{ fontSize: "12.5px", color: "var(--text-secondary)", marginTop: "2px" }}>
                   {c.issuedBy}

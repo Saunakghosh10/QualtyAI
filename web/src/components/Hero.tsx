@@ -1,7 +1,9 @@
 "use client";
 
 import React from "react";
-import { ArrowRight, Sliders, ShieldCheck, MapPin, CheckCircle, Lightning, Gavel } from "@phosphor-icons/react";
+import Link from "next/link";
+import { ArrowRight, Sliders, ShieldCheck, MapPin, CheckCircle, Lightning, Gavel, SquaresFour } from "@phosphor-icons/react";
+import { useViewer } from "@/lib/viewer";
 
 interface HeroProps {
   onOpenQuickBooking: () => void;
@@ -33,6 +35,9 @@ const STEPS = [
 ];
 
 export default function Hero({ onOpenQuickBooking, onOpenInquiryBooking }: HeroProps) {
+  const kind = useViewer().kind;
+  // Inspection companies and the Qualty team see their dashboard first, not the booking buttons.
+  const forCompany = kind === "company" || kind === "admin";
   return (
     <section
       style={{
@@ -116,16 +121,31 @@ export default function Hero({ onOpenQuickBooking, onOpenInquiryBooking }: HeroP
             flexWrap: "wrap",
           }}
         >
-          <button onClick={onOpenQuickBooking} className="btn-primary" style={{ padding: "12px 22px", fontSize: "15px" }}>
-            <Lightning size={16} weight="fill" aria-hidden="true" />
-            <span>Book a quick inspection</span>
-            <ArrowRight size={15} weight="bold" aria-hidden="true" />
-          </button>
+          {forCompany ? (
+            <>
+              <Link href="/dashboard" className="btn-primary" style={{ padding: "12px 22px", fontSize: "16px" }}>
+                <SquaresFour size={16} weight="bold" aria-hidden="true" />
+                <span>Go to your dashboard</span>
+                <ArrowRight size={16} weight="bold" aria-hidden="true" />
+              </Link>
+              <a href="#services" className="btn-secondary" style={{ padding: "12px 22px", fontSize: "16px" }}>
+                <span>See the store as customers do</span>
+              </a>
+            </>
+          ) : (
+            <>
+              <button onClick={onOpenQuickBooking} className="btn-primary" style={{ padding: "12px 22px", fontSize: "16px" }}>
+                <Lightning size={16} weight="fill" aria-hidden="true" />
+                <span>Book a quick inspection</span>
+                <ArrowRight size={16} weight="bold" aria-hidden="true" />
+              </button>
 
-          <button onClick={onOpenInquiryBooking} className="btn-secondary" style={{ padding: "12px 22px", fontSize: "15px" }}>
-            <Gavel size={16} weight="bold" aria-hidden="true" />
-            <span>Raise an Inquiry for bids</span>
-          </button>
+              <button onClick={onOpenInquiryBooking} className="btn-secondary" style={{ padding: "12px 22px", fontSize: "16px" }}>
+                <Gavel size={16} weight="bold" aria-hidden="true" />
+                <span>Raise an Inquiry for bids</span>
+              </button>
+            </>
+          )}
         </div>
 
         <p style={{ fontSize: "13px", color: "var(--text-muted)", margin: "16px auto 56px" }}>

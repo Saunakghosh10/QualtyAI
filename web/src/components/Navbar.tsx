@@ -1,12 +1,15 @@
 "use client";
 
 import React, { useState, useEffect, useSyncExternalStore } from "react";
-import { Sun, Moon, ArrowRight, Clock, List, X } from "@phosphor-icons/react";
+import Link from "next/link";
+import { Sun, Moon, ArrowRight, Clock, List, X, SquaresFour, ChatsCircle } from "@phosphor-icons/react";
 import { useTheme } from "@/context/ThemeContext";
-import { isRemote, useSession, signOut } from "@/lib/store";
+import { signOut } from "@/lib/store";
+import { useViewer } from "@/lib/viewer";
 
 interface NavbarProps {
-  onOpenBooking: () => void;
+  /** Opens the booking dialog. Without it (pages other than home) "Book inspection" links to the service store. */
+  onOpenBooking?: () => void;
 }
 
 const noopSubscribe = () => () => {};
@@ -16,8 +19,11 @@ export default function Navbar({ onOpenBooking }: NavbarProps) {
   const [utcTime, setUtcTime] = useState<string>("");
   // true only after hydration, so the theme button never mismatches the server HTML
   const mounted = useSyncExternalStore(noopSubscribe, () => true, () => false);
-  const { session, ready } = useSession();
+  const viewer = useViewer();
   const [menuOpen, setMenuOpen] = useState(false);
+  const kind = mounted ? viewer.kind : "loading";
+  const isCompany = kind === "company" || kind === "admin";
+  const signedIn = kind === "customer" || isCompany;
 
   // Close the mobile menu on Escape and lock page scroll while it is open.
   useEffect(() => {
@@ -43,23 +49,41 @@ export default function Navbar({ onOpenBooking }: NavbarProps) {
   }, []);
 
   const links = [
-    { href: "#services", label: "Services" },
-    { href: "#calibrator", label: "Calibrator" },
-    { href: "#orders", label: "Orders" },
-    { href: "#vault", label: "Evidence" },
-    { href: "#company", label: "For companies" },
+    { href: "/#services", label: "Services" },
+    { href: "/#calibrator", label: "Calibrator" },
+    ...(kind === "customer" || kind === "demo" ? [{ href: "/#orders", label: "Orders" }] : []),
+    { href: "/#vault", label: "Evidence" },
+    { href: "/companies", label: "For companies" },
   ];
 
   const openAuth = () => window.dispatchEvent(new CustomEvent("qualty:open-auth"));
+  const chatsLabel = isCompany ? "Chats" : "My chats";
+
+  const bookContent = (
+    <>
+      <span className="qnav-cta-long">Book inspection</span>
+      <span className="qnav-cta-short" aria-hidden="true">Book</span>
+      <ArrowRight size={14} weight="bold" aria-hidden="true" />
+    </>
+  );
+  const bookButton = onOpenBooking ? (
+    <button onClick={onOpenBooking} className="btn-primary qnav-btn" aria-label="Book inspection">
+      {bookContent}
+    </button>
+  ) : (
+    <Link href="/#services" className="btn-primary qnav-btn" aria-label="Book inspection">
+      {bookContent}
+    </Link>
+  );
 
   return (
     <header className="qnav">
       <div className="qnav-inner">
-        <a href="#top" className="qnav-brand">
+        <Link href="/" className="qnav-brand">
           <span className="qnav-logo" aria-hidden="true">Q</span>
           <span className="font-heading qnav-word">Qualty</span>
           <span className="qnav-ai">AI</span>
-        </a>
+        </Link>
 
         <nav className="qnav-links" aria-label="Main">
           {links.map((l) => (
@@ -86,28 +110,39 @@ export default function Navbar({ onOpenBooking }: NavbarProps) {
             </button>
           )}
 
-          {/* Account (only with the Supabase backend) */}
-          {isRemote && mounted && ready && (
-            session ? (
-              <button
-                onClick={() => void signOut()}
-                className="btn-secondary qnav-btn qnav-desktop"
-                title={`Signed in as ${session.email}`}
-              >
-                Sign out
-              </button>
-            ) : (
-              <button onClick={openAuth} className="btn-secondary qnav-btn qnav-desktop">
-                Sign in
-              </button>
-            )
+          {kind === "visitor" && (
+            <button onClick={openAuth} className="btn-secondary qnav-btn qnav-desktop">
+              Sign in
+            </button>
           )}
 
-          <button onClick={onOpenBooking} className="btn-primary qnav-btn" aria-label="Book Inspection">
-            <span className="qnav-cta-long">Book Inspection</span>
-            <span className="qnav-cta-short" aria-hidden="true">Book</span>
-            <ArrowRight size={14} weight="bold" aria-hidden="true" />
-          </button>
+          {signedIn && (
+            <>
+              <Link href="/rooms" className="qnav-link qnav-desktop qnav-inline">
+                <ChatsCircle size={16} aria-hidden="true" />
+                {chatsLabel}
+              </Link>
+              <button onClick={() => void signOut()} className="qnav-link qnav-desktop" title={viewer.name ? `Signed in as ${viewer.name}` : undefined}>
+                Sign out
+              </button>
+            </>
+          )}
+
+          {kind === "demo" && (
+            <Link href="/dashboard" className="btn-secondary qnav-btn qnav-desktop">
+              <SquaresFour size={15} aria-hidden="true" />
+              Company dashboard
+            </Link>
+          )}
+
+          {isCompany ? (
+            <Link href="/dashboard" className="btn-primary qnav-btn">
+              <SquaresFour size={15} weight="bold" aria-hidden="true" />
+              Dashboard
+            </Link>
+          ) : (
+            bookButton
+          )}
 
           <button
             className="qnav-icon qnav-menu-btn"
@@ -136,17 +171,30 @@ export default function Navbar({ onOpenBooking }: NavbarProps) {
               </a>
             ))}
           </nav>
-          {isRemote && mounted && ready && (
-            session ? (
+          <div className="qnav-panel-actions">
+            {(signedIn || kind === "demo") && (
+              <Link href="/rooms" className="btn-secondary" onClick={() => setMenuOpen(false)}>
+                <ChatsCircle size={16} aria-hidden="true" />
+                {kind === "demo" ? "Chats" : chatsLabel}
+              </Link>
+            )}
+            {kind === "demo" && (
+              <Link href="/dashboard" className="btn-secondary" onClick={() => setMenuOpen(false)}>
+                <SquaresFour size={16} aria-hidden="true" />
+                Company dashboard
+              </Link>
+            )}
+            {signedIn && (
               <button className="btn-secondary" onClick={() => { setMenuOpen(false); void signOut(); }}>
-                Sign out ({session.email})
+                Sign out{viewer.name ? ` (${viewer.name})` : ""}
               </button>
-            ) : (
+            )}
+            {kind === "visitor" && (
               <button className="btn-secondary" onClick={() => { setMenuOpen(false); openAuth(); }}>
                 Sign in
               </button>
-            )
-          )}
+            )}
+          </div>
         </div>
       )}
 
@@ -169,7 +217,7 @@ export default function Navbar({ onOpenBooking }: NavbarProps) {
           align-items: center;
           gap: 16px;
         }
-        .qnav-brand {
+        .qnav-inner :global(.qnav-brand) {
           display: flex;
           align-items: center;
           gap: 8px;
@@ -220,6 +268,28 @@ export default function Navbar({ onOpenBooking }: NavbarProps) {
           color: var(--text-main);
           background: var(--bg-subtle);
         }
+        .qnav-actions :global(.qnav-link) {
+          white-space: nowrap;
+          font-size: 14px;
+          font-weight: 500;
+          color: var(--text-secondary);
+          padding: 8px 12px;
+          border-radius: 9999px;
+          transition: color 0.2s var(--ease-out), background-color 0.2s var(--ease-out);
+        }
+        .qnav-actions :global(.qnav-link:hover) {
+          color: var(--text-main);
+          background: var(--bg-subtle);
+        }
+        .qnav-actions :global(.qnav-inline) {
+          align-items: center;
+          gap: 6px;
+        }
+        .qnav-panel-actions {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
         .qnav-actions {
           margin-left: auto;
           display: flex;
@@ -258,12 +328,12 @@ export default function Navbar({ onOpenBooking }: NavbarProps) {
         .qnav-icon:active {
           transform: scale(0.96);
         }
-        .qnav-btn {
+        .qnav-actions :global(.qnav-btn) {
           padding: 8px 14px;
-          font-size: 13.5px;
+          font-size: 14px;
         }
-        .qnav-cta-long,
-        .qnav-desktop {
+        .qnav-actions :global(.qnav-cta-long),
+        .qnav-actions :global(.qnav-desktop) {
           display: none;
         }
         .qnav-panel {
@@ -299,13 +369,13 @@ export default function Navbar({ onOpenBooking }: NavbarProps) {
           }
         }
         @media (min-width: 640px) {
-          .qnav-cta-long {
+          .qnav-actions :global(.qnav-cta-long) {
             display: inline;
           }
-          .qnav-cta-short {
+          .qnav-actions :global(.qnav-cta-short) {
             display: none;
           }
-          .qnav-desktop {
+          .qnav-actions :global(.qnav-desktop) {
             display: inline-flex;
           }
         }

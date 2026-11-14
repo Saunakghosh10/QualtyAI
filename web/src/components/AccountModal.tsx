@@ -1,8 +1,10 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { X } from "@phosphor-icons/react";
 import { signIn, signUp } from "@/lib/store";
+import { useViewer } from "@/lib/viewer";
 
 const field: React.CSSProperties = {
   padding: "10px 12px",
@@ -23,6 +25,20 @@ export default function AccountModal() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Set after a successful sign-in; once the session has loaded, companies and the Qualty team go to their dashboard.
+  const justSignedIn = useRef(false);
+  const viewer = useViewer();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (!justSignedIn.current) return;
+    if (viewer.kind === "company" || viewer.kind === "admin") {
+      justSignedIn.current = false;
+      router.push("/dashboard");
+    } else if (viewer.kind === "customer") {
+      justSignedIn.current = false;
+    }
+  }, [viewer.kind, router]);
 
   useEffect(() => {
     const on = (e: Event) => {
@@ -56,13 +72,17 @@ export default function AccountModal() {
     try {
       if (mode === "signin") {
         await signIn(f.email, f.password);
+        justSignedIn.current = true;
         setOpen(false);
       } else {
         const r = await signUp({ name: f.name, email: f.email, password: f.password, asCompany: f.asCompany });
         if (r.needsConfirmation) {
           setNotice(`We sent a confirmation link to ${f.email.trim()}. Open it, then sign in here.`);
           setMode("signin");
-        } else setOpen(false);
+        } else {
+          justSignedIn.current = true;
+          setOpen(false);
+        }
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong. Try again.");
@@ -94,7 +114,7 @@ export default function AccountModal() {
         </div>
         <p style={{ fontSize: "13px", color: "var(--text-secondary)", marginBottom: "16px" }}>
           {mode === "signin"
-            ? "Customers and inspection companies sign in here. You land on your own orders or your company console."
+            ? "Customers and inspection companies sign in here. Customers land on their orders, companies on their dashboard."
             : f.asCompany
               ? "List your services and prices, bid on enquiries and run your team. Invited to a team? Use the email you were invited with."
               : "Book inspections, compare companies and follow the inspection in a private chatroom with the company you book."}

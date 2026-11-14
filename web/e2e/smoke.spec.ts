@@ -9,8 +9,9 @@ test("home page loads every section without errors", async ({ page }) => {
   const res = await page.goto("/");
   expect(res?.status()).toBe(200);
   await expect(page).toHaveTitle(/Qualty\.AI/);
-  for (const id of ["calibrator", "orders", "vault"]) await expect(page.locator(`#${id}`)).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Every order gets its own chatroom" })).toBeVisible();
+  for (const id of ["calibrator", "vault"]) await expect(page.locator(`#${id}`)).toBeVisible();
+  // Visitors see who Qualty is for; order chatrooms only show once a customer is signed in.
+  await expect(page.getByRole("heading", { name: "Who Qualty is for" })).toBeVisible();
   await expect(page.getByText("Markets this quality suits")).toBeVisible();
   // Login/KYC is not in scope yet; the fake sandbox sign-in was removed.
   await expect(page.getByRole("button", { name: /Sign In/ })).toHaveCount(0);

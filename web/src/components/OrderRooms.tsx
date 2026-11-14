@@ -13,6 +13,12 @@ import {
   Gavel,
   FileText,
   SpinnerGap,
+  PencilSimple,
+  Check,
+  X,
+  ArrowSquareOut,
+  ArrowLeft,
+  SidebarSimple,
 } from "@phosphor-icons/react";
 import {
   useDB,
@@ -27,6 +33,10 @@ import {
   setFollowUp,
   withdrawBid,
   bidNet,
+  bidCustomerPrice,
+  roundCustomerPrice,
+  orderCustomerPrice,
+  orderCompanyBudget,
   completeInspection,
   setPartyVerified,
   describeSpec,
@@ -34,6 +44,8 @@ import {
   useSession,
   isRemote,
   orderRef,
+  roomTitle,
+  renameRoom,
   myCompanyIds,
   roomOpen,
   awaitingPayment,
@@ -50,11 +62,12 @@ import {
   type Party,
   type EvidenceRecord,
 } from "@/lib/store";
+import { messageDays } from "@/lib/chat";
 import EvidenceMedia from "./EvidenceMedia";
 import { run } from "@/lib/notify";
 
 /** Your role in an order's room, from your account (mirrors chat_role_for in the database). */
-function roleIn(o: Order, session: Session | null, team: TeamMember[]): Role {
+export function roleIn(o: Order, session: Session | null, team: TeamMember[]): Role {
   if (!session) return "customer";
   if (session.appRole === "admin") return "admin";
   if (o.customerId === session.userId) return "customer";
@@ -62,9 +75,18 @@ function roleIn(o: Order, session: Session | null, team: TeamMember[]): Role {
   return m?.role === "inspector" ? "inspector" : "company";
 }
 
+/** The viewer's role in the active room. On the backend it comes from the account; the demo lets you switch. */
+export function useRoomRole(active: Order | null): [Role, (r: Role) => void] {
+  const db = useDB();
+  const { session } = useSession();
+  const [picked, setPicked] = useState<Role>("customer");
+  const role: Role = !isRemote || !active ? picked : roleIn(active, session, db.team);
+  return [role, setPicked];
+}
+
 type Composer = "message" | "observation" | "dispatch" | "media";
 
-const STATUS_LABEL: Record<Order["status"], string> = {
+export const STATUS_LABEL: Record<Order["status"], string> = {
   enquiry: "Taking bids",
   booked: "Booked",
   "in-progress": "Inspection in progress",
@@ -81,11 +103,203 @@ const field: React.CSSProperties = {
   minWidth: 0,
 };
 
+const usd = (n: number) => `$${n.toLocaleString()}`;
+
+/** 24-hour clock, like a phone chat. */
+export const clock = (iso: string) => new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+
+/** Short time for a room list: the clock today, "Yesterday", else the date. */
+function listTime(iso: string, now = new Date()) {
+  const d = new Date(iso);
+  if (d.toDateString() === now.toDateString()) return clock(iso);
+  const y = new Date(now);
+  y.setDate(y.getDate() - 1);
+  if (d.toDateString() === y.toDateString()) return "Yesterday";
+  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+}
+
+/** One line describing a message, for room lists. */
+function preview(m: ChatMessage) {
+  if (m.kind === "system") return m.text;
+  if (m.kind === "summary") return "Inspection summary saved to the Vault";
+  if (m.kind === "flag") return `Flag: ${m.text}`;
+  const body = m.kind === "media" ? m.text || "Photo or video" : m.kind === "dispatch" ? `Dispatch: ${m.text || m.dispatch?.vehicleNo || ""}` : m.text;
+  return `${m.author}: ${body}`;
+}
+
+/** Link that opens a room's chat in its own window. */
+export const chatHref = (o: Pick<Order, "id">) => `/rooms?order=${encodeURIComponent(o.id)}`;
+
+/**
+ * List of rooms: group name, order number, status and the latest message.
+ * Each row is a button (its name includes the order number); `openLinks` adds an
+ * "open in a new window" link beside it.
+ */
+export function RoomList({
+  orders,
+  activeId,
+  onSelect,
+  openLinks = false,
+  label = "Orders",
+}: {
+  orders: Order[];
+  activeId: string | null;
+  onSelect: (id: string) => void;
+  openLinks?: boolean;
+  label?: string;
+}) {
+  const db = useDB();
+  const last = useMemo(() => {
+    const map = new Map<string, ChatMessage>();
+    for (const m of db.messages) {
+      const prev = map.get(m.orderId);
+      if (!prev || prev.createdAt <= m.createdAt) map.set(m.orderId, m);
+    }
+    return map;
+  }, [db.messages]);
+  const flags = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const m of db.messages) if (m.kind === "flag") map.set(m.orderId, (map.get(m.orderId) ?? 0) + 1);
+    return map;
+  }, [db.messages]);
+
+  return (
+    <nav aria-label={label} className="room-list">
+      {orders.map((o) => {
+        const isActive = o.id === activeId;
+        const m = last.get(o.id);
+        const f = flags.get(o.id) ?? 0;
+        return (
+          <div key={o.id} className="room-row" data-active={isActive || undefined}>
+            <button className="room-pick" onClick={() => onSelect(o.id)} aria-current={isActive ? "true" : undefined}>
+              <span className="room-line">
+                <span className="room-name">{o.roomName || o.commodity}</span>
+                {m && <span className="room-time font-mono">{listTime(m.createdAt)}</span>}
+              </span>
+              <span className="room-line room-meta">
+                <span className="font-mono room-ref">{orderRef(o)}</span>
+                <span aria-hidden="true">·</span>
+                <span style={{ color: o.status === "completed" ? "var(--success-text)" : undefined }}>{STATUS_LABEL[o.status]}</span>
+                {f > 0 && (
+                  <span className="room-flags">
+                    {f} flag{f === 1 ? "" : "s"}
+                  </span>
+                )}
+              </span>
+              {m && <span className="room-preview">{preview(m)}</span>}
+            </button>
+            {openLinks && (
+              <a
+                className="room-out"
+                href={chatHref(o)}
+                target="_blank"
+                rel="noopener"
+                aria-label={`Open chat for ${orderRef(o)} in a new window`}
+                title="Open chat in a new window"
+              >
+                <ArrowSquareOut size={18} />
+              </a>
+            )}
+          </div>
+        );
+      })}
+      <style jsx>{`
+        .room-list {
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+        }
+        .room-row {
+          display: flex;
+          align-items: stretch;
+          gap: 2px;
+          border-radius: 10px;
+          border: 1px solid transparent;
+          transition: background-color 0.15s var(--ease-out);
+        }
+        .room-row:hover {
+          background-color: var(--bg-subtle);
+        }
+        .room-row[data-active] {
+          background-color: var(--accent-light);
+          border-color: var(--accent-border);
+        }
+        .room-pick {
+          flex: 1;
+          min-width: 0;
+          text-align: left;
+          padding: 10px 12px;
+          border-radius: 10px;
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+        }
+        .room-line {
+          display: flex;
+          align-items: baseline;
+          gap: 8px;
+          min-width: 0;
+        }
+        .room-name {
+          flex: 1;
+          min-width: 0;
+          font-size: 14px;
+          font-weight: 600;
+          color: var(--text-main);
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .room-time {
+          flex: none;
+          font-size: 11.5px;
+          color: var(--text-muted);
+        }
+        .room-meta {
+          gap: 6px;
+          font-size: 12px;
+          color: var(--text-muted);
+        }
+        .room-ref {
+          color: var(--text-secondary);
+          font-weight: 600;
+        }
+        .room-flags {
+          margin-left: auto;
+          color: var(--warning-text);
+          white-space: nowrap;
+        }
+        .room-preview {
+          font-size: 12.5px;
+          color: var(--text-secondary);
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .room-out {
+          flex: none;
+          width: 40px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          border-radius: 10px;
+          color: var(--text-muted);
+          transition: color 0.15s var(--ease-out), background-color 0.15s var(--ease-out);
+        }
+        .room-out:hover {
+          color: var(--accent-primary);
+          background-color: var(--bg-card);
+        }
+      `}</style>
+    </nav>
+  );
+}
+
+/** Homepage section: your chatrooms, each one also opens in its own window. */
 export default function OrderRooms({ onBook }: { onBook: () => void }) {
   const db = useDB();
   const orders = db.orders;
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [pickedRole, setRole] = useState<Role>("customer");
   const { session, ready } = useSession();
 
   useEffect(() => {
@@ -95,20 +309,26 @@ export default function OrderRooms({ onBook }: { onBook: () => void }) {
   }, []);
 
   const active = orders.find((o) => o.id === activeId) ?? orders[0] ?? null;
-  // On the backend your role in a room comes from your account; the demo lets you switch.
-  const role: Role = !isRemote || !active ? pickedRole : roleIn(active, session, db.team);
+  const [role, setRole] = useRoomRole(active);
 
   return (
     <section id="orders" style={{ padding: "clamp(40px, 5vw, 64px) 20px", maxWidth: "1280px", margin: "0 auto" }}>
-      <div style={{ maxWidth: "720px", marginBottom: "28px" }}>
-        <h2 className="font-heading" style={{ fontSize: "clamp(26px, 3.4vw, 36px)", fontWeight: 700, color: "var(--text-main)", textWrap: "balance" }}>
-          Every order gets its own chatroom
-        </h2>
-        <p style={{ fontSize: "15px", color: "var(--text-secondary)", lineHeight: 1.6, marginTop: "10px", textWrap: "pretty" }}>
-          Once the order is booked and paid, a private chatroom opens for you and the inspection company. Inspectors report
-          here live: readings, truck and container dispatch, photos and videos. Readings outside the booked spec are flagged
-          automatically, and closing the inspection writes the summary into the Quality Evidence Vault.
-        </p>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: "16px", flexWrap: "wrap", marginBottom: "28px" }}>
+        <div style={{ maxWidth: "720px" }}>
+          <h2 className="font-heading" style={{ fontSize: "clamp(26px, 3.4vw, 36px)", fontWeight: 700, color: "var(--text-main)", textWrap: "balance" }}>
+            Every order gets its own chatroom
+          </h2>
+          <p style={{ fontSize: "15px", color: "var(--text-secondary)", lineHeight: 1.6, marginTop: "10px", textWrap: "pretty" }}>
+            Once the order is booked and paid, a private chatroom opens for you, the inspection company and the Qualty team.
+            Inspectors report there live: readings, truck and container dispatch, photos and videos. Readings outside the
+            booked spec are flagged automatically, and closing the inspection writes the summary into the Quality Evidence Vault.
+          </p>
+        </div>
+        {orders.length > 0 && (!isRemote || session) && (
+          <a href="/rooms" target="_blank" rel="noopener" className="btn-secondary" style={{ padding: "9px 16px", fontSize: "13.5px" }}>
+            <ArrowSquareOut size={16} /> Open chatrooms in a new window
+          </a>
+        )}
       </div>
 
       {isRemote && !session ? (
@@ -142,44 +362,10 @@ export default function OrderRooms({ onBook }: { onBook: () => void }) {
         </div>
       ) : (
         <div style={{ display: "flex", flexWrap: "wrap", gap: "20px", alignItems: "flex-start" }}>
-          {/* Order list */}
-          <nav aria-label="Orders" className="card-shell" style={{ flex: "1 1 260px", maxWidth: "100%", padding: "8px", display: "flex", flexDirection: "column", gap: "4px" }}>
-            {orders.map((o) => {
-              const isActive = o.id === active?.id;
-              const flags = db.messages.filter((m) => m.orderId === o.id && m.kind === "flag").length;
-              return (
-                <button
-                  key={o.id}
-                  onClick={() => setActiveId(o.id)}
-                  aria-current={isActive ? "true" : undefined}
-                  style={{
-                    textAlign: "left",
-                    padding: "10px 12px",
-                    borderRadius: "8px",
-                    cursor: "pointer",
-                    backgroundColor: isActive ? "var(--accent-light)" : "transparent",
-                    border: isActive ? "1px solid var(--accent-border)" : "1px solid transparent",
-                  }}
-                >
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: "8px" }}>
-                    <span className="font-mono" style={{ fontSize: "13px", fontWeight: 700, color: "var(--text-main)" }}>{orderRef(o)}</span>
-                    <span style={{ fontSize: "11.5px", color: o.status === "completed" ? "var(--success-text)" : "var(--text-muted)" }}>
-                      {STATUS_LABEL[o.status]}
-                    </span>
-                  </div>
-                  <div style={{ fontSize: "12.5px", color: "var(--text-secondary)", marginTop: "2px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {o.commodity}
-                  </div>
-                  {flags > 0 && (
-                    <div style={{ fontSize: "11.5px", color: "var(--warning-text)", marginTop: "2px" }}>
-                      {flags} flag{flags === 1 ? "" : "s"}
-                    </div>
-                  )}
-                </button>
-              );
-            })}
-          </nav>
-
+          <div className="card-shell" style={{ flex: "1 1 280px", maxWidth: "100%", padding: "8px" }}>
+            <h3 style={{ fontSize: "12.5px", fontWeight: 600, color: "var(--text-muted)", padding: "6px 12px 8px" }}>Your chatrooms</h3>
+            <RoomList orders={orders} activeId={active?.id ?? null} onSelect={setActiveId} openLinks />
+          </div>
           {active && <Room key={active.id} order={active} role={role} setRole={setRole} />}
         </div>
       )}
@@ -213,134 +399,542 @@ function PartyLine({ label, party, canVerify, onVerify }: { label: string; party
   );
 }
 
-function Room({ order, role, setRole }: { order: Order; role: Role; setRole: (r: Role) => void }) {
+/**
+ * The room's title: group name (or commodity) and the order number, which always stays.
+ * Members can rename the group in place: Enter saves, Esc cancels, an empty name goes back to the commodity.
+ */
+export function RoomName({ order, size = 16, level = 3 }: { order: Order; size?: number; level?: 2 | 3 }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [problems, setProblems] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+  const pencil = useRef<HTMLButtonElement>(null);
+  const Heading = level === 2 ? "h2" : "h3";
+  const name = order.roomName || order.commodity;
+
+  const start = () => {
+    setDraft(order.roomName ?? "");
+    setProblems([]);
+    setEditing(true);
+  };
+  const stop = () => {
+    setEditing(false);
+    setProblems([]);
+    requestAnimationFrame(() => pencil.current?.focus());
+  };
+  const save = async () => {
+    if (busy) return;
+    if (draft.trim().replace(/\s+/g, " ") === (order.roomName ?? "")) return stop();
+    setBusy(true);
+    const p = await run(renameRoom(order.id, draft));
+    setBusy(false);
+    if (p === undefined) return;
+    if (p.length) setProblems(p);
+    else stop();
+  };
+
+  if (editing) {
+    return (
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          void save();
+        }}
+        style={{ display: "flex", flexDirection: "column", gap: "4px", minWidth: 0, flex: "1 1 240px" }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: "6px", minWidth: 0 }}>
+          <input
+            autoFocus
+            aria-label="Group name"
+            aria-invalid={problems.length > 0 || undefined}
+            aria-describedby={`rename-${order.id}-hint`}
+            placeholder={order.commodity}
+            maxLength={60}
+            value={draft}
+            disabled={busy}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                e.preventDefault();
+                stop();
+              }
+            }}
+            style={{ ...field, flex: "1 1 160px", fontSize: "14px", fontWeight: 600, padding: "6px 10px" }}
+          />
+          <span className="font-mono" style={{ fontSize: "12.5px", fontWeight: 600, color: "var(--text-muted)", whiteSpace: "nowrap" }}>
+            {orderRef(order)}
+          </span>
+          <button type="submit" aria-label="Save group name" disabled={busy} style={iconBtn}>
+            {busy ? <SpinnerGap size={16} className="animate-spin" /> : <Check size={16} weight="bold" />}
+          </button>
+          <button type="button" aria-label="Cancel renaming" onClick={stop} style={iconBtn}>
+            <X size={16} />
+          </button>
+        </div>
+        {problems.length > 0 ? (
+          <p id={`rename-${order.id}-hint`} role="alert" style={{ fontSize: "12px", color: "var(--danger-text)" }}>
+            {problems.join(" ")}
+          </p>
+        ) : (
+          <p id={`rename-${order.id}-hint`} style={{ fontSize: "11.5px", color: "var(--text-muted)" }}>
+            Enter to save, Esc to cancel. Leave it empty to use the commodity. The order number stays.
+          </p>
+        )}
+      </form>
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: "4px", minWidth: 0 }}>
+      <Heading
+        className="font-heading"
+        title={roomTitle(order)}
+        style={{ fontSize: `${size}px`, fontWeight: 700, color: "var(--text-main)", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", letterSpacing: "-0.01em" }}
+      >
+        {name}
+        <span style={{ color: "var(--text-faint)", fontWeight: 400 }}> · </span>
+        <span className="font-mono" style={{ fontSize: `${size - 2}px`, color: "var(--text-secondary)" }}>
+          {orderRef(order)}
+        </span>
+      </Heading>
+      <button ref={pencil} type="button" aria-label="Rename group" title="Rename group" onClick={start} style={iconBtn}>
+        <PencilSimple size={16} />
+      </button>
+    </div>
+  );
+}
+
+const iconBtn: React.CSSProperties = {
+  flex: "none",
+  width: "32px",
+  height: "32px",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  borderRadius: "8px",
+  color: "var(--text-muted)",
+};
+
+/** Members, parties, budget and spec. */
+function RoomFacts({ order, role }: { order: Order; role: Role }) {
+  const partiesHidden = order.members.length === 0;
+  const budget = role === "customer" ? order.budgetUSD : orderCompanyBudget(order);
+  return (
+    <>
+      <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>
+        Members: {order.members.map((m) => `${m.name} (${ROLE_LABEL[m.role]})`).join(", ")}
+      </div>
+      {partiesHidden ? (
+        <p style={{ fontSize: "12px", color: "var(--text-muted)" }}>
+          Buyer, seller and customer details are shared only with the company whose bid is accepted.
+        </p>
+      ) : (
+        <>
+          <PartyLine label="Buyer" party={order.buyer} canVerify={role === "admin"} onVerify={() => void run(setPartyVerified(order.id, "buyer"))} />
+          <PartyLine label="Seller" party={order.seller} canVerify={role === "admin"} onVerify={() => void run(setPartyVerified(order.id, "seller"))} />
+        </>
+      )}
+      {budget !== undefined && (
+        <p style={{ fontSize: "12px", color: "var(--text-secondary)" }}>
+          {role === "customer" ? "Your budget" : "Budget"} <span className="font-mono">{usd(budget)}</span>
+        </p>
+      )}
+      {order.spec && (
+        <p style={{ fontSize: "12px", color: "var(--accent-text)" }}>
+          Booked spec{order.specLabel ? ` (${order.specLabel})` : ""}: {describeSpec(order.spec)}
+        </p>
+      )}
+    </>
+  );
+}
+
+function RoleControl({ role, setRole }: { role: Role; setRole: (r: Role) => void }) {
+  return isRemote ? (
+    <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>You&apos;re in this room as {ROLE_LABEL[role]}</span>
+  ) : (
+    <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px", color: "var(--text-muted)" }}>
+      Viewing as
+      <select value={role} onChange={(e) => setRole(e.target.value as Role)} style={field}>
+        {(Object.keys(ROLE_LABEL) as Role[]).map((r) => (
+          <option key={r} value={r}>
+            {ROLE_LABEL[r]}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+/** Messages under sticky day separators (Today, Yesterday, a date). */
+function Thread({ order, role, fill }: { order: Order; role: Role; fill?: boolean }) {
   const db = useDB();
   const messages = useMemo(() => db.messages.filter((m) => m.orderId === order.id), [db.messages, order.id]);
-  const evidence = useMemo(() => db.evidence.filter((e) => e.orderId === order.id), [db.evidence, order.id]);
-  const evidenceById = useMemo(() => new Map(evidence.map((e) => [e.id, e])), [evidence]);
-  const threadRef = useRef<HTMLDivElement>(null);
+  const evidenceById = useMemo(() => new Map(db.evidence.filter((e) => e.orderId === order.id).map((e) => [e.id, e])), [db.evidence, order.id]);
+  const days = useMemo(() => messageDays(messages), [messages]);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    ref.current?.scrollTo({ top: ref.current.scrollHeight });
+  }, [messages.length]);
+
+  return (
+    <div
+      ref={ref}
+      role="log"
+      aria-label={`Chat for ${orderRef(order)}`}
+      style={{
+        ...(fill ? { flex: 1, minHeight: 0 } : { maxHeight: "460px" }),
+        overflowY: "auto",
+        padding: "0 20px 16px",
+        display: "flex",
+        flexDirection: "column",
+        gap: "4px",
+        backgroundColor: "var(--bg-subtle)",
+      }}
+    >
+      {days.map((d) => (
+        <div key={d.key} role="group" aria-label={d.label} style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+          <div style={{ position: "sticky", top: 0, zIndex: 1, display: "flex", justifyContent: "center", padding: "10px 0 2px", pointerEvents: "none" }}>
+            <span
+              style={{
+                fontSize: "11.5px",
+                fontWeight: 600,
+                color: "var(--text-secondary)",
+                backgroundColor: "var(--bg-card)",
+                border: "1px solid var(--border-main)",
+                borderRadius: "9999px",
+                padding: "3px 10px",
+                boxShadow: "var(--shadow-sm)",
+              }}
+            >
+              {d.label}
+            </span>
+          </div>
+          {d.items.map((m) => (
+            <Message key={m.id} m={m} evidence={m.evidenceId ? evidenceById.get(m.evidenceId) : undefined} mine={m.role === role} />
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Checklist({ order }: { order: Order }) {
   const [checklist, setChecklist] = useState<Record<string, boolean>>({});
+  return (
+    <div>
+      <div style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-main)", marginBottom: "8px" }}>Before you close the inspection</div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 16px", marginBottom: "12px" }}>
+        {REQUIRED_CHECKS.map((c) => (
+          <label key={c} style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12.5px", color: "var(--text-secondary)", minHeight: "28px" }}>
+            <input type="checkbox" checked={!!checklist[c]} onChange={(e) => setChecklist({ ...checklist, [c]: e.target.checked })} />
+            {c}
+          </label>
+        ))}
+      </div>
+      <button className="btn-primary" style={{ padding: "9px 18px", fontSize: "13px" }} onClick={() => void run(completeInspection(order.id, checklist))}>
+        <CheckCircle size={16} weight="bold" /> Close inspection and write summary
+      </button>
+      <p style={{ fontSize: "11.5px", color: "var(--text-muted)", marginTop: "6px" }}>Unticked items are flagged as missing in the summary.</p>
+    </div>
+  );
+}
+
+/**
+ * One order's chatroom. `inline` is the homepage card; `window` fills the /rooms page:
+ * a sticky header, the thread with the composer below it, and a collapsible details panel
+ * holding the parties, bids, payment and closing checklist.
+ */
+export function Room({
+  order,
+  role,
+  setRole,
+  variant = "inline",
+  onBack,
+}: {
+  order: Order;
+  role: Role;
+  setRole: (r: Role) => void;
+  variant?: "inline" | "window";
+  onBack?: () => void;
+}) {
+  // null follows the screen width (shown on wide screens); a click pins it open or shut.
+  const [details, setDetails] = useState<boolean | null>(null);
 
   const memberName = (r: Role) =>
     r === "inspector"
       ? `Inspector${order.inspectionCompany ? ` (${order.inspectionCompany})` : ""}`
       : order.members.find((m) => m.role === r)?.name ?? ROLE_LABEL[r];
 
-  useEffect(() => {
-    threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight });
-  }, [messages.length]);
-
   const closed = order.status === "completed";
   const open = roomOpen(order) || (role === "admin" && order.status !== "enquiry");
   const canReport = (role === "inspector" || role === "company" || role === "admin") && !closed && open;
-  const partiesHidden = order.members.length === 0;
+  const showChecklist = canReport && (role === "inspector" || role === "admin");
+  const subline = `${order.service} · ${order.location} · ${order.volumeTons.toLocaleString()} t · ${order.inspectionDate}`;
 
-  return (
-    <div className="card-shell" style={{ flex: "999 1 480px", minWidth: 0, padding: 0, overflow: "hidden" }}>
-      {/* Header */}
-      <header style={{ padding: "16px 20px", borderBottom: "1px solid var(--border-main)", display: "flex", flexDirection: "column", gap: "8px" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
-          <div>
-            <h3 className="font-mono" style={{ fontSize: "16px", fontWeight: 700, color: "var(--text-main)" }}>{orderRef(order)}</h3>
-            <p style={{ fontSize: "12.5px", color: "var(--text-secondary)" }}>
-              {order.service} · {order.location} · {order.volumeTons.toLocaleString()} t · {order.inspectionDate}
-            </p>
+  const enquiryNote = (
+    <p style={{ padding: "16px 20px", fontSize: "13px", color: "var(--text-muted)" }}>
+      The chatroom opens for the customer and the chosen company once a bid is accepted and paid.
+    </p>
+  );
+  const composer = closed ? (
+    <p style={{ padding: "14px 20px", fontSize: "13px", color: "var(--text-muted)", borderTop: "1px solid var(--border-main)" }}>
+      This inspection is closed. The summary and evidence are in the Quality Evidence Vault.
+    </p>
+  ) : (
+    <ComposerBar order={order} role={role} author={memberName(role)} canReport={canReport} />
+  );
+
+  if (variant === "inline") {
+    return (
+      <div className="card-shell" style={{ flex: "999 1 480px", minWidth: 0, padding: 0, overflow: "hidden" }}>
+        <header style={{ padding: "16px 20px", borderBottom: "1px solid var(--border-main)", display: "flex", flexDirection: "column", gap: "8px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
+            <div style={{ minWidth: 0, flex: "1 1 240px" }}>
+              <RoomName order={order} />
+              <p style={{ fontSize: "12.5px", color: "var(--text-secondary)" }}>{subline}</p>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
+              <RoleControl role={role} setRole={setRole} />
+              <a
+                href={chatHref(order)}
+                target="_blank"
+                rel="noopener"
+                style={{ display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "12.5px", fontWeight: 600, color: "var(--accent-primary)", minHeight: "32px" }}
+              >
+                <ArrowSquareOut size={16} /> Open chat
+              </a>
+            </div>
           </div>
-          {isRemote ? (
-            <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>You&apos;re in this room as {ROLE_LABEL[role]}</span>
-          ) : (
-          <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px", color: "var(--text-muted)" }}>
-            Viewing as
-            <select value={role} onChange={(e) => setRole(e.target.value as Role)} style={field}>
-              {(Object.keys(ROLE_LABEL) as Role[]).map((r) => (
-                <option key={r} value={r}>
-                  {ROLE_LABEL[r]}
-                </option>
-              ))}
-            </select>
-          </label>
-          )}
-        </div>
-        <div style={{ fontSize: "12px", color: "var(--text-muted)" }}>
-          Members: {order.members.map((m) => `${m.name} (${ROLE_LABEL[m.role]})`).join(", ")}
-        </div>
-        {partiesHidden ? (
-          <p style={{ fontSize: "12px", color: "var(--text-muted)" }}>
-            Buyer, seller and customer details are shared only with the company whose bid is accepted.
-          </p>
+          <RoomFacts order={order} role={role} />
+        </header>
+
+        {order.mode === "inquiry" && <Bids order={order} role={role} />}
+
+        {order.status === "enquiry" ? (
+          <div style={{ borderTop: "1px solid var(--border-main)" }}>{enquiryNote}</div>
+        ) : !open ? (
+          <PaymentPanel order={order} role={role} />
         ) : (
           <>
-            <PartyLine label="Buyer" party={order.buyer} canVerify={role === "admin"} onVerify={() => void run(setPartyVerified(order.id, "buyer"))} />
-            <PartyLine label="Seller" party={order.seller} canVerify={role === "admin"} onVerify={() => void run(setPartyVerified(order.id, "seller"))} />
+            {/* The Qualty team can use an unpaid room, and confirms the payment from it. */}
+            {awaitingPayment(order) && <PaymentPanel order={order} role={role} />}
+            <Thread order={order} role={role} />
+            {composer}
+            {showChecklist && (
+              <div style={{ padding: "14px 20px", borderTop: "1px solid var(--border-main)" }}>
+                <Checklist order={order} />
+              </div>
+            )}
           </>
         )}
-        {order.budgetUSD !== undefined && (
-          <p style={{ fontSize: "12px", color: "var(--text-secondary)" }}>Customer budget: ${order.budgetUSD.toLocaleString()}</p>
+      </div>
+    );
+  }
+
+  const toggleDetails = () => {
+    const showing = details ?? window.matchMedia("(min-width: 1100px)").matches;
+    setDetails(!showing);
+  };
+  const detailsState = details === null ? "auto" : details ? "open" : "closed";
+
+  return (
+    <div className="rw" data-details={detailsState}>
+      <header className="rw-head">
+        {onBack && (
+          <button type="button" className="rw-back" aria-label="Back to chatrooms" onClick={onBack} style={iconBtn}>
+            <ArrowLeft size={18} />
+          </button>
         )}
-        {order.spec && (
-          <p style={{ fontSize: "12px", color: "var(--accent-text)" }}>
-            Booked spec{order.specLabel ? ` (${order.specLabel})` : ""}: {describeSpec(order.spec)}
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <RoomName order={order} size={17} level={2} />
+          <p className="rw-sub">
+            {STATUS_LABEL[order.status]} · {subline}
           </p>
-        )}
+        </div>
+        <div className="rw-tools">
+          <RoleControl role={role} setRole={setRole} />
+          <button
+            type="button"
+            className="btn-secondary"
+            aria-expanded={detailsState === "open" ? true : detailsState === "closed" ? false : undefined}
+            aria-controls={`details-${order.id}`}
+            onClick={toggleDetails}
+            style={{ padding: "6px 12px", fontSize: "12.5px" }}
+          >
+            <SidebarSimple size={16} style={{ transform: "scaleX(-1)" }} /> Details
+          </button>
+        </div>
       </header>
 
-      {order.mode === "inquiry" && <Bids order={order} role={role} />}
+      <div className="rw-body">
+        <div className="rw-main">
+          {order.status === "enquiry" ? (
+            <div style={{ overflowY: "auto", flex: 1 }}>
+              {order.mode === "inquiry" && <Bids order={order} role={role} />}
+              {enquiryNote}
+            </div>
+          ) : !open ? (
+            <div style={{ overflowY: "auto", flex: 1 }}>
+              <PaymentPanel order={order} role={role} />
+            </div>
+          ) : (
+            <>
+              {awaitingPayment(order) && <PaymentPanel order={order} role={role} />}
+              <Thread order={order} role={role} fill />
+              {composer}
+            </>
+          )}
+        </div>
 
-      {order.status === "enquiry" ? (
-        <p style={{ padding: "16px 20px", fontSize: "13px", color: "var(--text-muted)", borderTop: "1px solid var(--border-main)" }}>
-          The chatroom opens for the customer and the chosen company once a bid is accepted and paid.
-        </p>
-      ) : !open ? (
-        <PaymentPanel order={order} role={role} />
-      ) : (
-        <>
-      {/* Thread */}
-      <div ref={threadRef} role="log" aria-label={`Chat for ${orderRef(order)}`} style={{ maxHeight: "460px", overflowY: "auto", padding: "16px 20px", display: "flex", flexDirection: "column", gap: "10px", backgroundColor: "var(--bg-subtle)" }}>
-        {messages.map((m) => (
-          <Message key={m.id} m={m} evidence={m.evidenceId ? evidenceById.get(m.evidenceId) : undefined} mine={m.role === role} />
-        ))}
+        <aside id={`details-${order.id}`} className="rw-details" aria-label="Order details">
+          <div className="rw-details-head">
+            <span>Order details</span>
+            <button type="button" aria-label="Close details" onClick={() => setDetails(false)} style={iconBtn}>
+              <X size={16} />
+            </button>
+          </div>
+          <div style={{ padding: "4px 20px 16px", display: "flex", flexDirection: "column", gap: "8px" }}>
+            <RoomFacts order={order} role={role} />
+          </div>
+          {order.mode === "inquiry" && order.status !== "enquiry" && (
+            <div style={{ borderTop: "1px solid var(--border-main)" }}>
+              <Bids order={order} role={role} />
+            </div>
+          )}
+          {showChecklist && (
+            <div style={{ padding: "14px 20px", borderTop: "1px solid var(--border-main)" }}>
+              <Checklist order={order} />
+            </div>
+          )}
+        </aside>
       </div>
 
-      {/* Composer */}
-      {closed ? (
-        <p style={{ padding: "14px 20px", fontSize: "13px", color: "var(--text-muted)", borderTop: "1px solid var(--border-main)" }}>
-          This inspection is closed. The summary and evidence are in the Quality Evidence Vault.
-        </p>
-      ) : (
-        <ComposerBar order={order} role={role} author={memberName(role)} canReport={canReport} />
-      )}
-
-      {/* Completion checklist */}
-      {canReport && (role === "inspector" || role === "admin") && (
-        <div style={{ padding: "14px 20px", borderTop: "1px solid var(--border-main)" }}>
-          <div style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-main)", marginBottom: "8px" }}>Before you close the inspection</div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 16px", marginBottom: "12px" }}>
-            {REQUIRED_CHECKS.map((c) => (
-              <label key={c} style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12.5px", color: "var(--text-secondary)", minHeight: "28px" }}>
-                <input type="checkbox" checked={!!checklist[c]} onChange={(e) => setChecklist({ ...checklist, [c]: e.target.checked })} />
-                {c}
-              </label>
-            ))}
-          </div>
-          <button className="btn-primary" style={{ padding: "9px 18px", fontSize: "13px" }} onClick={() => void run(completeInspection(order.id, checklist))}>
-            <CheckCircle size={16} weight="bold" /> Close inspection and write summary
-          </button>
-          <p style={{ fontSize: "11.5px", color: "var(--text-muted)", marginTop: "6px" }}>Unticked items are flagged as missing in the summary.</p>
-        </div>
-      )}
-        </>
-      )}
+      <style jsx>{`
+        .rw {
+          position: relative;
+          display: flex;
+          flex-direction: column;
+          height: 100%;
+          min-height: 0;
+          background: var(--bg-card);
+        }
+        .rw-head {
+          flex: none;
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          padding: 10px 16px 10px 20px;
+          border-bottom: 1px solid var(--border-main);
+          background: var(--bg-card);
+          position: sticky;
+          top: 0;
+          z-index: 3;
+        }
+        .rw-sub {
+          font-size: 12.5px;
+          color: var(--text-muted);
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .rw-tools {
+          flex: none;
+          display: flex;
+          align-items: center;
+          gap: 10px;
+        }
+        .rw-body {
+          flex: 1;
+          min-height: 0;
+          display: flex;
+          position: relative;
+        }
+        .rw-main {
+          flex: 1;
+          min-width: 0;
+          display: flex;
+          flex-direction: column;
+          background: var(--bg-subtle);
+        }
+        .rw-details {
+          flex: none;
+          width: 360px;
+          overflow-y: auto;
+          border-left: 1px solid var(--border-main);
+          background: var(--bg-card);
+        }
+        .rw-details-head {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 10px 12px 2px 20px;
+          font-size: 13px;
+          font-weight: 600;
+          color: var(--text-main);
+        }
+        .rw[data-details="closed"] .rw-details {
+          display: none;
+        }
+        @media (max-width: 1099px) {
+          .rw[data-details="auto"] .rw-details {
+            display: none;
+          }
+          .rw[data-details="open"] .rw-details {
+            position: absolute;
+            top: 0;
+            right: 0;
+            bottom: 0;
+            width: min(380px, 100%);
+            z-index: 2;
+            box-shadow: var(--shadow-xl);
+            animation: rw-in 0.22s var(--ease-out);
+          }
+        }
+        @media (min-width: 720px) {
+          .rw-back {
+            display: none !important;
+          }
+        }
+        @media (max-width: 719px) {
+          .rw-head {
+            padding: 8px 10px;
+            gap: 6px;
+            flex-wrap: wrap;
+          }
+          .rw-tools {
+            width: 100%;
+            justify-content: space-between;
+          }
+        }
+        @keyframes rw-in {
+          from {
+            transform: translateX(16px);
+            opacity: 0;
+          }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .rw-details {
+            animation: none !important;
+          }
+        }
+      `}</style>
     </div>
   );
 }
 
-/** Booked but not paid: the customer pays and gives the reference, the company confirms. */
+/**
+ * Booked but not paid. Qualty collects the money: the customer pays Qualty and gives the
+ * reference, the Qualty team confirms it. Companies only see whether the customer has paid.
+ */
 function PaymentPanel({ order, role }: { order: Order; role: Role }) {
   const [reference, setReference] = useState(order.paymentRef ?? "");
   const [problems, setProblems] = useState<string[]>([]);
   const inv = order.invoice;
-  const due = inv ? invoiceTotal(inv) - invoicePaid(inv) : order.priceUSD ?? 0;
-  const company = order.inspectionCompany ?? "the inspection company";
+  // What the Qualty team records against the invoice.
+  const invoiceDue = inv ? invoiceTotal(inv) - invoicePaid(inv) : order.priceUSD ?? 0;
+  // What the customer pays: always the customer's figure, never the company price.
+  const customerDue = orderCustomerPrice(order);
 
   const sendRef = async () => {
     const p = await run(markPaymentSent(order.id, reference));
@@ -349,7 +943,7 @@ function PaymentPanel({ order, role }: { order: Order; role: Role }) {
   const confirm = async () => {
     const p = await run(
       recordPayment(order.id, {
-        amountUSD: due,
+        amountUSD: invoiceDue,
         method: "Bank transfer",
         reference: order.paymentRef ?? "",
         receivedOn: new Date().toISOString().slice(0, 10),
@@ -358,55 +952,71 @@ function PaymentPanel({ order, role }: { order: Order; role: Role }) {
     setProblems(p ?? []);
   };
 
+  const text: React.CSSProperties = { fontSize: "13.5px", color: "var(--text-secondary)" };
+
   return (
     <section aria-label="Payment" style={{ padding: "20px", borderTop: "1px solid var(--border-main)", display: "flex", flexDirection: "column", gap: "10px" }}>
       <h4 style={{ fontSize: "15px", fontWeight: 600, color: "var(--text-main)" }}>
         {awaitingPayment(order) ? "Waiting for payment" : "Payment"}
       </h4>
-      <p style={{ fontSize: "13.5px", color: "var(--text-secondary)" }}>
-        {inv ? `Invoice ${inv.number}: $${due.toLocaleString()} due by ${inv.dueOn}.` : `Amount due: $${due.toLocaleString()}.`} The chatroom
-        opens for you and {role === "customer" ? company : "the customer"} as soon as the payment is confirmed.
-      </p>
 
       {role === "customer" ? (
-        order.paymentRef ? (
-          <p role="status" style={{ fontSize: "13px", color: "var(--success-text)" }}>
-            You told {company} you paid (ref {order.paymentRef}). Waiting for them to confirm.
-          </p>
-        ) : (
-          <>
-            <p style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
-              Pay {company} by bank transfer or UPI, then enter the payment reference here.
-            </p>
-            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-              <input
-                aria-label="Payment reference"
-                placeholder="UTR or UPI reference"
-                value={reference}
-                onChange={(e) => setReference(e.target.value)}
-                style={{ ...field, flex: "1 1 200px" }}
-              />
-              <button className="btn-primary" style={{ padding: "8px 16px", fontSize: "13px" }} onClick={() => void sendRef()}>
-                I have paid
-              </button>
-            </div>
-          </>
-        )
-      ) : (
         <>
-          <p style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
-            {order.paymentRef
-              ? `The customer says they paid on ${order.paymentSentOn ?? "today"} (ref ${order.paymentRef}). Check your account, then confirm.`
-              : "The customer hasn't paid yet."}
+          <p style={text}>
+            {inv ? `Invoice ${inv.number}` : "Your invoice"}
+            {customerDue !== undefined && (
+              <>
+                : <strong className="font-mono" style={{ color: "var(--text-main)" }}>{usd(customerDue)}</strong>
+              </>
+            )}
+            {inv ? ` due by ${inv.dueOn}.` : "."} The chatroom opens for you and {order.inspectionCompany ?? "the inspection company"} once the
+            payment is confirmed.
           </p>
-          {(role === "company" || role === "admin") && (
-            <div>
-              <button className="btn-primary" style={{ padding: "8px 16px", fontSize: "13px" }} onClick={() => void confirm()}>
-                Confirm payment received
-              </button>
-            </div>
+          {order.paymentRef ? (
+            <p role="status" style={{ fontSize: "13px", color: "var(--success-text)" }}>
+              You sent payment reference {order.paymentRef}. The Qualty team confirms it, then the chatroom opens.
+            </p>
+          ) : (
+            <>
+              <p style={{ fontSize: "13px", color: "var(--text-secondary)" }}>Pay Qualty by bank transfer or UPI, then enter the payment reference here.</p>
+              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                <input
+                  aria-label="Payment reference"
+                  placeholder="UTR or UPI reference"
+                  value={reference}
+                  onChange={(e) => setReference(e.target.value)}
+                  style={{ ...field, flex: "1 1 200px" }}
+                />
+                <button className="btn-primary" style={{ padding: "8px 16px", fontSize: "13px" }} onClick={() => void sendRef()}>
+                  I have paid
+                </button>
+              </div>
+            </>
           )}
         </>
+      ) : role === "admin" ? (
+        <>
+          <p style={text}>
+            {inv ? `Invoice ${inv.number}: ${usd(invoiceDue)} due by ${inv.dueOn}.` : `Amount due: ${usd(invoiceDue)}.`}{" "}
+            {order.paymentRef
+              ? `The customer says they paid on ${order.paymentSentOn ?? "today"} (ref ${order.paymentRef}). Check the Qualty account, then confirm.`
+              : "The customer hasn't sent a payment reference yet."}
+          </p>
+          <div>
+            <button className="btn-primary" style={{ padding: "8px 16px", fontSize: "13px" }} onClick={() => void confirm()}>
+              Confirm payment received
+            </button>
+          </div>
+        </>
+      ) : (
+        <p role="status" style={text}>
+          {order.paidAt
+            ? "Paid."
+            : order.paymentRef
+              ? "Waiting for the customer's payment. They have sent a reference and the Qualty team confirms it."
+              : "Waiting for the customer's payment."}{" "}
+          The chatroom opens for you and the customer once it is confirmed.
+        </p>
       )}
       {problems.length > 0 && (
         <p role="alert" style={{ fontSize: "12.5px", color: "var(--danger-text)" }}>
@@ -418,7 +1028,7 @@ function PaymentPanel({ order, role }: { order: Order; role: Role }) {
 }
 
 function Message({ m, evidence, mine }: { m: ChatMessage; evidence?: EvidenceRecord; mine: boolean }) {
-  const time = new Date(m.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const time = clock(m.createdAt);
 
   if (m.kind === "system") {
     return (
@@ -792,10 +1402,16 @@ function BidActions({ order, bid, role }: { order: Order; bid: Bid; role: Role }
   );
 }
 
+/**
+ * Bids on an enquiry. Customers see customer prices (with the Qualty margin), companies and the
+ * Qualty team see company prices. The store only fills the reader's side on the backend.
+ */
 function Bids({ order, role }: { order: Order; role: Role }) {
   const [form, setForm] = useState({ company: "", price: "", days: "", scope: "", discount: "", date: "" });
   const open = order.status === "enquiry";
   const live = order.bids.filter((b) => b.status !== "withdrawn");
+  const asCustomer = role === "customer";
+  const price = (b: Bid) => (asCustomer ? bidCustomerPrice(b) : bidNet(b));
   return (
     <div style={{ padding: "14px 20px", borderBottom: "1px solid var(--border-main)" }}>
       <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "13px", fontWeight: 600, color: "var(--text-main)", marginBottom: "10px" }}>
@@ -808,7 +1424,7 @@ function Bids({ order, role }: { order: Order; role: Role }) {
       )}
       <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: open && role === "company" ? "12px" : 0 }}>
         {[...order.bids]
-          .sort((a, b) => Number(a.status === "withdrawn") - Number(b.status === "withdrawn") || bidNet(a) - bidNet(b))
+          .sort((a, b) => Number(a.status === "withdrawn") - Number(b.status === "withdrawn") || price(a) - price(b))
           .map((b) => {
             const last = b.rounds?.[b.rounds.length - 1];
             const mineBid = !isRemote || role !== "company" || myCompanyIds(["owner", "sales"]).includes(b.companyId ?? "");
@@ -834,11 +1450,17 @@ function Bids({ order, role }: { order: Order; role: Role }) {
                     {b.status === "withdrawn" && <span style={{ fontWeight: 400, color: "var(--text-muted)" }}> · withdrawn</span>}
                   </div>
                   <div style={{ fontSize: "12px", color: "var(--text-secondary)" }}>
-                    <span className="font-mono" style={{ fontVariantNumeric: "tabular-nums" }}>${bidNet(b).toLocaleString()}</span>
+                    <span className="font-mono" style={{ fontVariantNumeric: "tabular-nums" }}>{usd(price(b))}</span>
                     {b.discountPct ? (
                       <span style={{ color: "var(--success-text)" }}>
                         {" "}
-                        ({b.discountPct}% off <s>${b.priceUSD.toLocaleString()}</s>)
+                        {asCustomer ? (
+                          `(${b.discountPct}% off)`
+                        ) : (
+                          <>
+                            ({b.discountPct}% off <s>{usd(b.priceUSD)}</s>)
+                          </>
+                        )}
                       </span>
                     ) : null}
                     {" "}· {b.days} day(s)
@@ -847,7 +1469,7 @@ function Bids({ order, role }: { order: Order; role: Role }) {
                   </div>
                   {last?.by === "customer" && b.status === "open" && (
                     <div style={{ fontSize: "12px", color: "var(--warning-text)", marginTop: "2px" }}>
-                      Customer asked for ${last.priceUSD.toLocaleString()}
+                      {asCustomer ? `You asked for ${usd(roundCustomerPrice(last))}` : `Customer asked for ${usd(last.priceUSD)}`}
                       {last.note && `: "${last.note}"`}
                     </div>
                   )}
