@@ -31,7 +31,6 @@ import {
   type ComplianceItem,
   type Role,
   type Party,
-  bidNet,
   invoiceTotal,
   invoicePaid,
   listingProblems,
@@ -186,6 +185,8 @@ function mapAll(r: {
         createdAt: o.created_at,
         completedAt: o.completed_at ?? undefined,
         priceUSD: o.price_usd === null ? undefined : Number(o.price_usd),
+        customerPriceUSD: o.customer_price_usd === null ? undefined : Number(o.customer_price_usd),
+        roomName: o.room_name ?? undefined,
         listingId: o.listing_id ?? undefined,
         invoice: invoiceByOrder.get(o.id),
         budgetUSD: o.budget_usd === null ? undefined : Number(o.budget_usd),
@@ -387,6 +388,48 @@ async function all<T extends keyof Tables>(table: T): Promise<Row<T>[]> {
   return (data ?? []) as unknown as Row<T>[];
 }
 
+// Money columns are hidden from direct reads (migration 20261114120000_platform_margin).
+// Each side gets its own figures through order_figures / bid_figures / round_figures.
+const ORDER_COLS =
+  "id, customer_id, mode, service, commodity, spec, spec_label, buyer_name, buyer_gstin, buyer_iec, buyer_verification, " +
+  "seller_name, seller_gstin, seller_iec, seller_verification, location, inspection_date, volume_tons, status, " +
+  "inspection_company_id, listing_id, created_at, completed_at, paid_at, payment_ref, payment_sent_on, room_name";
+const BID_COLS = "id, order_id, company_id, discount_pct, days, scope, status, follow_up_on, created_by, created_at, proposed_date";
+const ROUND_COLS = "id, bid_id, side, note, created_by, created_at";
+
+async function orderRows(): Promise<Row<"orders">[]> {
+  const [rows, figs] = await Promise.all([sb().from("orders").select(ORDER_COLS), sb().rpc("order_figures")]);
+  if (rows.error) throw new Error(`Couldn't load orders: ${rows.error.message}`);
+  if (figs.error) throw new Error(`Couldn't load order prices: ${figs.error.message}`);
+  const f = new Map((figs.data ?? []).map((x) => [x.order_id, x]));
+  return ((rows.data ?? []) as unknown as Row<"orders">[]).map((o) => ({
+    ...o,
+    price_usd: f.get(o.id)?.price_usd ?? null,
+    customer_price_usd: f.get(o.id)?.customer_price_usd ?? null,
+    budget_usd: f.get(o.id)?.budget_usd ?? null,
+  }));
+}
+
+async function bidRows(): Promise<Row<"bids">[]> {
+  const [rows, figs] = await Promise.all([sb().from("bids").select(BID_COLS), sb().rpc("bid_figures")]);
+  if (rows.error) throw new Error(`Couldn't load bids: ${rows.error.message}`);
+  if (figs.error) throw new Error(`Couldn't load bid prices: ${figs.error.message}`);
+  const f = new Map((figs.data ?? []).map((x) => [x.bid_id, x]));
+  return ((rows.data ?? []) as unknown as Row<"bids">[]).map((b) => ({
+    ...b,
+    price_usd: f.get(b.id)?.price_usd ?? 0,
+    discount_pct: f.get(b.id)?.discount_pct ?? 0,
+  }));
+}
+
+async function roundRows(): Promise<Row<"bid_rounds">[]> {
+  const [rows, figs] = await Promise.all([sb().from("bid_rounds").select(ROUND_COLS), sb().rpc("round_figures")]);
+  if (rows.error) throw new Error(`Couldn't load offers: ${rows.error.message}`);
+  if (figs.error) throw new Error(`Couldn't load offer prices: ${figs.error.message}`);
+  const f = new Map((figs.data ?? []).map((x) => [x.round_id, x.price_usd]));
+  return ((rows.data ?? []) as unknown as Row<"bid_rounds">[]).map((r) => ({ ...r, price_usd: f.get(r.id) ?? 0 }));
+}
+
 type Enquiry = {
   id: string;
   service: string;
@@ -450,9 +493,9 @@ export function refresh(): Promise<void> {
       }
       const [orders, bids, rounds, invoices, payments, messages, evidence, companies, members, kyc, listings, certs, compliance, specs] =
         await Promise.all([
-          all("orders"),
-          all("bids"),
-          all("bid_rounds"),
+          orderRows(),
+          bidRows(),
+          roundRows(),
           all("invoices"),
           all("payments"),
           all("messages"),
@@ -651,7 +694,7 @@ export async function createOrder(
       budget_usd: input.budgetUSD ?? null,
       customer_id: cache.session!.userId,
     })
-    .select()
+    .select("id, mode, created_at")
     .single();
   fail(error, "Couldn't create the order");
   for (const side of ["buyer", "seller"] as const) {
@@ -668,6 +711,27 @@ export async function setPartyVerified(orderId: string, side: "buyer" | "seller"
   fail(error, "Couldn't mark it verified");
   await text(orderId, `Qualty admin verified the ${side}.`);
   await refresh();
+}
+
+/** The Qualty team sets the customer's price by hand (admins only, checked in the database). */
+export async function setCustomerPrice(orderId: string, priceUSD: number): Promise<string[]> {
+  need();
+  if (!(priceUSD > 0)) return ["Price must be more than $0."];
+  const { error } = await sb().rpc("set_customer_price", { oid: orderId, price: priceUSD });
+  if (error) return [error.message];
+  await refresh();
+  return [];
+}
+
+/** Give the chatroom a group name. An empty name goes back to the default. */
+export async function renameRoom(orderId: string, name: string): Promise<string[]> {
+  need();
+  const clean = name.trim().replace(/\s+/g, " ");
+  if (clean.length > 60) return ["Keep the group name under 60 characters."];
+  const { error } = await sb().rpc("rename_room", { oid: orderId, name: clean });
+  if (error) return [error.message];
+  await refresh();
+  return [];
 }
 
 // ---------- Bids ----------
@@ -697,11 +761,10 @@ export async function submitBid(orderId: string, bid: Omit<Bid, "id" | "createdA
       proposed_date: bid.proposedDate ?? null,
       created_by: s.userId,
     })
-    .select()
+    .select("id, created_at")
     .single();
   fail(error, "Couldn't submit the bid");
-  const off = bid.discountPct ? ` (${bid.discountPct}% off $${bid.priceUSD.toLocaleString()})` : "";
-  await text(orderId, `Bid: $${bidNet(bid).toLocaleString()}${off} for ${bid.days} day(s).`);
+  await text(orderId, `Placed a bid: ${bid.days} day(s). Prices are in each side's Bids panel.`);
   await refresh();
   return order(orderId)?.bids.find((b) => b.id === data!.id) ?? ({ ...bid, id: data!.id, status: "open", createdAt: data!.created_at } as Bid);
 }
@@ -713,17 +776,13 @@ export async function acceptBid(orderId: string, bidId: string) {
 }
 
 export async function counterBid(orderId: string, bidId: string, by: BidRound["by"], priceUSD: number, note = "") {
-  const s = need();
+  need();
   if (!(priceUSD > 0)) return;
-  const { error } = await sb().from("bid_rounds").insert({ bid_id: bidId, side: by, price_usd: priceUSD, note: note.trim(), created_by: s.userId });
+  const { error } = await sb().rpc("counter_bid", { bid: bidId, price: priceUSD, note: note.trim() });
   fail(error, "Couldn't send the offer");
-  if (by === "company") {
-    const { error: e2 } = await sb().from("bids").update({ price_usd: priceUSD, discount_pct: 0 }).eq("id", bidId);
-    fail(e2, "Couldn't revise the bid");
-  }
   await text(
     orderId,
-    `${by === "company" ? "Revised the bid to" : "Counter-offer:"} $${priceUSD.toLocaleString()}.${note.trim() ? ` Note: ${note.trim()}` : ""}`,
+    `${by === "company" ? "Revised the bid" : "Asked for a lower price"}.${note.trim() ? ` Note: ${note.trim()}` : ""}`,
   );
   await refresh();
 }
@@ -733,7 +792,7 @@ export async function discountBid(orderId: string, bidId: string, discountPct: n
   const { error } = await sb().from("bids").update({ discount_pct: discountPct }).eq("id", bidId);
   fail(error, "Couldn't apply the discount");
   const b = order(orderId)?.bids.find((x) => x.id === bidId);
-  if (b) await text(orderId, `Gave ${discountPct}% off: bid is now $${bidNet({ priceUSD: b.priceUSD, discountPct }).toLocaleString()}.`);
+  if (b) await text(orderId, `${b.company} gave a ${discountPct}% discount on its bid.`);
   await refresh();
 }
 
@@ -1031,7 +1090,7 @@ export async function raiseInvoice(orderId: string, input: { amountUSD: number; 
     .from("invoices")
     .insert({ order_id: orderId, number, amount_usd: input.amountUSD, discount_pct: input.discountPct, due_on: input.dueOn, issued_on: today() });
   if (error) return [`Couldn't raise the invoice: ${error.message}`];
-  await text(orderId, `Invoice ${number} raised for $${invoiceTotal({ ...input, number, issuedOn: today(), payments: [] }).toLocaleString()}, due ${input.dueOn}.`);
+  await text(orderId, `Invoice ${number} raised, due ${input.dueOn}.`);
   await refresh();
   return [];
 }

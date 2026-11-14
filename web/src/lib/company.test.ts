@@ -53,7 +53,7 @@ describe("bid negotiation", () => {
     const after = S.getOrder(o.id)!;
     expect(after.status).toBe("booked");
     expect(after.priceUSD).toBe(1615);
-    expect(texts(o.id).some((t: string) => t.includes("asked Acme for $1,500"))).toBe(true);
+    expect(texts(o.id).some((t: string) => t.includes("asked Acme for a lower price") && !t.includes("$"))).toBe(true);
   });
 
   it("ignores negotiation on withdrawn bids and closed enquiries", () => {

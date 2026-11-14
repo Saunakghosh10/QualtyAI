@@ -529,6 +529,7 @@ export type Database = {
           completed_at: string | null
           created_at: string
           customer_id: string
+          customer_price_usd: number | null
           id: string
           inspection_company_id: string | null
           inspection_date: string
@@ -539,6 +540,7 @@ export type Database = {
           payment_ref: string | null
           payment_sent_on: string | null
           price_usd: number | null
+          room_name: string | null
           seller_gstin: string | null
           seller_iec: string | null
           seller_name: string
@@ -559,6 +561,7 @@ export type Database = {
           completed_at?: string | null
           created_at?: string
           customer_id?: string
+          customer_price_usd?: number | null
           id?: string
           inspection_company_id?: string | null
           inspection_date: string
@@ -569,6 +572,7 @@ export type Database = {
           payment_ref?: string | null
           payment_sent_on?: string | null
           price_usd?: number | null
+          room_name?: string | null
           seller_gstin?: string | null
           seller_iec?: string | null
           seller_name: string
@@ -589,6 +593,7 @@ export type Database = {
           completed_at?: string | null
           created_at?: string
           customer_id?: string
+          customer_price_usd?: number | null
           id?: string
           inspection_company_id?: string | null
           inspection_date?: string
@@ -599,6 +604,7 @@ export type Database = {
           payment_ref?: string | null
           payment_sent_on?: string | null
           price_usd?: number | null
+          room_name?: string | null
           seller_gstin?: string | null
           seller_iec?: string | null
           seller_name?: string
@@ -771,11 +777,43 @@ export type Database = {
           },
         ]
       }
+      standard_rates: {
+        Row: { price_usd: number; service: string }
+        Insert: { price_usd: number; service: string }
+        Update: { price_usd?: number; service?: string }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
+      bid_figures: {
+        Args: never
+        Returns: { bid_id: string; discount_pct: number; price_usd: number }[]
+      }
+      counter_bid: {
+        Args: { bid: string; note?: string; price: number }
+        Returns: undefined
+      }
+      order_figures: {
+        Args: never
+        Returns: {
+          budget_usd: number | null
+          customer_price_usd: number | null
+          order_id: string
+          price_usd: number | null
+        }[]
+      }
+      rename_room: { Args: { name: string; oid: string }; Returns: undefined }
+      round_figures: {
+        Args: never
+        Returns: { price_usd: number; round_id: string }[]
+      }
+      set_customer_price: {
+        Args: { oid: string; price: number }
+        Returns: undefined
+      }
       accept_bid: { Args: { bid: string }; Returns: undefined }
       browse_listings: {
         Args: never

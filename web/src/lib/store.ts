@@ -63,3 +63,5 @@ export const checkCertificate = (code: string): Promise<L.CertCheck> =>
   isRemote ? R.checkCertificate(code) : Promise.resolve(L.checkCertificate(code));
 export const addCompliance = isRemote ? R.addCompliance : L.addCompliance;
 export const removeCompliance = pick(L.removeCompliance, R.removeCompliance);
+export const setCustomerPrice = pick(L.setCustomerPrice, R.setCustomerPrice);
+export const renameRoom = pick(L.renameRoom, R.renameRoom);

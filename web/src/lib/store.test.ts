@@ -12,10 +12,10 @@ beforeEach(async () => {
 
 const party = (name: string) => S.checkParty({ name }).party;
 
-/** A quick order at $650, paid so its chatroom is open. */
+/** A quick order at $650 (customer pays $845), paid so its chatroom is open. */
 function quickOrder(spec: typeof riceSpec | null = riceSpec, paid = true) {
   const o = unpaidQuick(spec);
-  if (paid) S.recordPayment(o.id, { amountUSD: 650, method: "UPI", reference: "UTR123", receivedOn: "2026-11-01" });
+  if (paid) S.recordPayment(o.id, { amountUSD: 845, method: "UPI", reference: "UTR123", receivedOn: "2026-11-01" });
   return S.getOrder(o.id)!;
 }
 
@@ -105,7 +105,7 @@ describe("orders and chatrooms", () => {
 
   it("invoices every booking and keeps the chatroom shut until the invoice is paid", () => {
     const o = S.getOrder(unpaidQuick().id)!;
-    expect(o.invoice).toMatchObject({ amountUSD: 650, discountPct: 0 });
+    expect(o.invoice).toMatchObject({ amountUSD: 845, discountPct: 0 });
     expect(S.roomOpen(o)).toBe(false);
     expect(S.awaitingPayment(o)).toBe(true);
     expect(S.postMessage({ orderId: o.id, kind: "text", role: "customer", author: "C", text: "early" })).toBeNull();
@@ -118,7 +118,7 @@ describe("orders and chatrooms", () => {
 
     S.recordPayment(o.id, { amountUSD: 400, method: "UPI", reference: "UTR998877", receivedOn: "2026-11-02" });
     expect(S.roomOpen(S.getOrder(o.id)!)).toBe(false);
-    S.recordPayment(o.id, { amountUSD: 250, method: "UPI", reference: "UTR998878", receivedOn: "2026-11-03" });
+    S.recordPayment(o.id, { amountUSD: 445, method: "UPI", reference: "UTR998878", receivedOn: "2026-11-03" });
     const paid = S.getOrder(o.id)!;
     expect(S.roomOpen(paid)).toBe(true);
     expect(messages(o.id).at(-1).text).toContain("Chatroom opened");
@@ -151,7 +151,7 @@ describe("orders and chatrooms", () => {
     const after = S.getOrder(e.id)!;
     expect(after.status).toBe("booked");
     expect(after.inspectionCompany).toBe("Cotecna");
-    expect(after.invoice?.amountUSD).toBe(950);
+    expect(after.invoice?.amountUSD).toBe(1235);
     expect(S.awaitingPayment(after)).toBe(true);
     expect(after.members.map((m) => `${m.role}:${m.name}`)).toEqual(["customer:Cust", "company:Cotecna", "admin:Qualty admin team"]);
     expect(after.bids.map((b) => b.status)).toEqual(["declined", "accepted"]);
