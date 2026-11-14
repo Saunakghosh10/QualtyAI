@@ -6,13 +6,14 @@ export const orders = (page: Page) => page.locator("#orders");
 /** Opens booking from the Calibrator, fills parties, submits, returns the order number. */
 export async function bookFromCalibrator(
   page: Page,
-  opts: { mode?: "quick" | "inquiry"; buyer?: string; seller?: string; buyerGstin?: string; buyerIec?: string } = {},
+  opts: { mode?: "quick" | "inquiry"; budget?: number; buyer?: string; seller?: string; buyerGstin?: string; buyerIec?: string } = {},
 ) {
   await page.getByRole("button", { name: "Book Inspection with These Specs" }).click();
   const dialog = bookingDialog(page);
   await expect(dialog).toBeVisible();
   if (opts.mode === "inquiry") await dialog.getByRole("button", { name: /Raise an Inquiry/ }).click();
   await dialog.getByRole("button", { name: "Next: Schedule & Budget" }).click();
+  if (opts.budget !== undefined) await dialog.getByLabel("Your budget (USD)").fill(String(opts.budget));
   await dialog.getByRole("button", { name: "Next: Your details" }).click();
   await dialog.getByLabel("Buyer", { exact: true }).fill(opts.buyer ?? "Al-Khaleej Foods");
   await dialog.getByLabel("Seller", { exact: true }).fill(opts.seller ?? "Punjab Rice Mills");
@@ -30,7 +31,10 @@ export async function openRoom(page: Page, opts: { pay?: boolean } = {}) {
   if (opts.pay !== false) await payIfDue(page);
 }
 
-/** Customer gives the payment reference, the company confirms it, and the chatroom opens. Leaves the view on Customer. */
+/**
+ * Qualty collects payment: the customer gives the payment reference, the Qualty team confirms it,
+ * and the chatroom opens. Leaves the view on Customer.
+ */
 export async function payIfDue(page: Page) {
   const room = orders(page);
   const payment = room.getByRole("region", { name: "Payment" });
@@ -38,8 +42,8 @@ export async function payIfDue(page: Page) {
   await viewAs(page, "Customer");
   await room.getByLabel("Payment reference").fill("UTR12345678");
   await room.getByRole("button", { name: "I have paid" }).click();
-  await expect(room.getByText(/Waiting for them to confirm/)).toBeVisible();
-  await viewAs(page, "Inspection company");
+  await expect(room.getByText("You sent payment reference UTR12345678.", { exact: false })).toBeVisible();
+  await viewAs(page, "Qualty admin");
   await room.getByRole("button", { name: "Confirm payment received" }).click();
   await expect(room.getByRole("log")).toBeVisible();
   await viewAs(page, "Customer");

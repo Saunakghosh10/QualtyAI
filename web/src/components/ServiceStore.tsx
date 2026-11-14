@@ -1,8 +1,8 @@
 "use client";
 
 import React, { useMemo, useState, useSyncExternalStore } from "react";
-import { Package, Anchor, Truck, Boat, MapPin, SealCheck, Clock, Users, Gavel } from "@phosphor-icons/react";
-import { useDB, SERVICES, listingNet, type ServiceListing } from "@/lib/store";
+import { Package, Anchor, Truck, Boat, MapPin, SealCheck, Clock, Users, Gavel, Certificate, FileText, Stamp } from "@phosphor-icons/react";
+import { useDB, SERVICES, listingCustomerPrice, type ServiceListing } from "@/lib/store";
 
 export interface StorePick {
   service: string;
@@ -32,7 +32,24 @@ const ABOUT: Record<string, { Icon: typeof Package; where: string; what: string 
     where: "Discharge port",
     what: "Condition and out turn quantity at arrival, with photos for any claim.",
   },
+  "ECTN (Electronic Cargo Tracking Note)": {
+    Icon: FileText,
+    where: "One rate across India",
+    what: "The cargo tracking note many African ports ask for before the ship arrives.",
+  },
+  "CoC (Certificate of Conformity)": {
+    Icon: Certificate,
+    where: "One rate across India",
+    what: "Inspection and the certificate that shows the goods meet the importing country's standards.",
+  },
+  "Customs Import Control": {
+    Icon: Stamp,
+    where: "One rate across India",
+    what: "The import control check some African and Southeast Asian customs need before clearance.",
+  },
 };
+
+const FALLBACK = { Icon: Package, where: "", what: "" };
 
 const ANY = "";
 const noop = () => () => {};
@@ -52,7 +69,7 @@ export default function ServiceStore({ onPick }: { onPick: (p: StorePick) => voi
   );
   const locations = useMemo(() => [...new Set(forService.map((l) => l.location))].sort(), [forService]);
   const shown = useMemo(
-    () => forService.filter((l) => location === ANY || l.location === location).sort((a, b) => listingNet(a) - listingNet(b)),
+    () => forService.filter((l) => location === ANY || l.location === location).sort((a, b) => listingCustomerPrice(a) - listingCustomerPrice(b)),
     [forService, location],
   );
 
@@ -69,7 +86,7 @@ export default function ServiceStore({ onPick }: { onPick: (p: StorePick) => voi
 
       <div role="radiogroup" aria-label="Service" className="store-services">
         {SERVICES.map((s) => {
-          const a = ABOUT[s];
+          const a = ABOUT[s] ?? FALLBACK;
           const on = s === service;
           const count = listings.filter((l) => l.active && l.service === s && l.availableTo >= today).length;
           return (
@@ -86,8 +103,8 @@ export default function ServiceStore({ onPick }: { onPick: (p: StorePick) => voi
             >
               <a.Icon size={22} weight={on ? "fill" : "regular"} aria-hidden="true" color="var(--accent-primary)" />
               <span className="store-service-title">{s}</span>
-              <span className="store-service-where">{a.where}</span>
-              <span className="store-service-what">{a.what}</span>
+              {a.where && <span className="store-service-where">{a.where}</span>}
+              {a.what && <span className="store-service-what">{a.what}</span>}
               <span className="store-service-count">{count === 0 ? "No companies listed yet" : `${count} offer${count === 1 ? "" : "s"}`}</span>
             </button>
           );
@@ -148,12 +165,8 @@ export default function ServiceStore({ onPick }: { onPick: (p: StorePick) => voi
                 {l.commodities.length > 0 && <div className="store-row-goods">{l.commodities.join(", ")}</div>}
               </div>
               <div className="store-row-price">
-                <span className="font-mono store-price">${listingNet(l).toLocaleString()}</span>
-                {l.discountPct > 0 && (
-                  <span className="store-was">
-                    <s>${l.priceUSD.toLocaleString()}</s> {l.discountPct}% off
-                  </span>
-                )}
+                <span className="font-mono store-price">${listingCustomerPrice(l).toLocaleString()}</span>
+                <span className="store-was">per inspection</span>
               </div>
               <button
                 className="btn-primary"
@@ -308,7 +321,7 @@ export default function ServiceStore({ onPick }: { onPick: (p: StorePick) => voi
         }
         .store-was {
           font-size: 12px;
-          color: var(--success-text);
+          color: var(--text-muted);
         }
         .store-empty {
           padding: 32px 24px;

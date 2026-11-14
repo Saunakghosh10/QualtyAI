@@ -54,8 +54,8 @@ test("quick inspection: chatroom, reports, flags, summary and Vault", async ({ p
 
   await viewAs(page, "Inspector");
   await post(page, "Observation", { "Broken %": "4", "Live insects": "1" }, "Hold 3 slight musty odour");
-  await expect(room.getByText("Critical flag · Quality deviation: Live insects found (1); the booked spec allows 0.")).toBeVisible();
-  await expect(room.getByText("Quality deviation: Broken 4% is above the booked 2%.")).toBeVisible();
+  await expect(room.getByRole("log").getByText("Critical flag · Quality deviation: Live insects found (1); the booked spec allows 0.")).toBeVisible();
+  await expect(room.getByRole("log").getByText("Quality deviation: Broken 4% is above the booked 2%.")).toBeVisible();
 
   await post(page, "Dispatch", { "Truck / container no.": "MSCU8291048", "Seal no.": "IN-MUN-1", Bags: "500", "Weight (t)": "25" });
   await room.getByRole("tab", { name: "Photo or video" }).click();
@@ -104,12 +104,18 @@ test("enquiry: companies bid, customer accepts, winner joins the room", async ({
   }
   await expect(room.getByText("Bids (2)")).toBeVisible();
 
+  // Companies see their own prices.
+  await expect(room.getByText("$950", { exact: true })).toBeVisible();
+
   await viewAs(page, "Customer");
-  // Bids are listed cheapest first.
+  // Customers see prices with Qualty's 30% ($950 -> $1,235, $1,200 -> $1,560), cheapest first.
+  await expect(room.getByText("$1,235", { exact: true })).toBeVisible();
+  await expect(room.getByText("$1,560", { exact: true })).toBeVisible();
+  await expect(room.getByText("$950", { exact: true })).toHaveCount(0);
   await room.getByRole("button", { name: "Accept bid" }).first().click();
   await expect(room.getByText(/Members: .*Cotecna \(Inspection company\)/)).toBeVisible();
   await payIfDue(page);
-  await expect(room.getByText(/^Customer accepted Cotecna's bid of \$950\./)).toBeVisible();
+  await expect(room.getByRole("log").getByText("Customer accepted Cotecna's bid. Invoice sent; the chatroom opens once payment is confirmed.")).toBeVisible();
   await expect(room.getByRole("button", { name: "Accept bid" })).toHaveCount(0);
 });
 
@@ -120,4 +126,46 @@ test("customers cannot post inspector reports", async ({ page }) => {
   await expect(room.getByRole("tab", { name: "Observation" })).toHaveCount(0);
   await post(page, "Message", {}, "When does the surveyor arrive?");
   await expect(room.getByRole("log").getByText("When does the surveyor arrive?")).toBeVisible();
+});
+
+test("chat page: open a paid room in its own window, rename the group", async ({ page }) => {
+  const id = await bookFromCalibrator(page);
+  await openRoom(page);
+  const link = orders(page).getByRole("link", { name: "Open chat", exact: true });
+  await expect(link).toHaveAttribute("href", /^\/rooms\?order=/);
+  const [chat] = await Promise.all([page.waitForEvent("popup"), link.click()]);
+  await expect(chat).toHaveURL(/\/rooms\?order=/);
+
+  const log = chat.getByRole("log", { name: `Chat for ${id}` });
+  await expect(log.getByRole("group", { name: "Today" })).toBeVisible();
+
+  await chat.getByRole("button", { name: "Rename group" }).click();
+  await chat.getByRole("textbox", { name: "Group name" }).fill("Basmati Lot 7");
+  await chat.getByRole("textbox", { name: "Group name" }).press("Enter");
+  await expect(chat.getByRole("heading", { name: `Basmati Lot 7 · ${id}` })).toBeVisible();
+  await expect(log.getByText("Group renamed to Basmati Lot 7.")).toBeVisible();
+  await expect(chat).toHaveTitle(/Basmati Lot 7/);
+
+  // The room list shows the new name (on phones it is one tap back).
+  const back = chat.getByRole("button", { name: "Back to chatrooms" });
+  if (await back.isVisible()) await back.click();
+  await expect(chat.getByRole("navigation", { name: "Orders" }).getByRole("button", { name: /Basmati Lot 7/ })).toBeVisible();
+});
+
+test("companies page: what companies get, and sign-up as a company", async ({ page }) => {
+  await page.goto("/companies");
+  await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "You set your price. Qualty adds its fee on top." })).toBeVisible();
+  // Demo mode: no sign-in, so the call to action goes straight to the dashboard.
+  await expect(page.getByRole("link", { name: "Go to your dashboard" }).first()).toHaveAttribute("href", "/dashboard");
+
+  // With the backend, "List your company" fires this event; the dialog opens as a company sign-up.
+  await page.evaluate(() =>
+    window.dispatchEvent(new CustomEvent("qualty:open-auth", { detail: { mode: "signup", as: "company" } })),
+  );
+  const dialog = page.getByRole("dialog", { name: "Create a company account" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole("radio", { name: /An inspection company/ })).toBeChecked();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
 });
