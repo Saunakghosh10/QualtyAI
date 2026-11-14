@@ -137,3 +137,27 @@ describe("chat by day", () => {
     ]);
   });
 });
+
+describe("one price per side", () => {
+  it("works out each side's figure when the store holds both", () => {
+    const o = order("inquiry", { budgetUSD: 2500 });
+    const bid = S.submitBid(o.id, { company: "Acme Surveyors", priceUSD: 1000, discountPct: 10, days: 3, scope: "" });
+    S.counterBid(o.id, bid.id, "customer", 1040);
+    const fresh = S.getOrder(o.id)!;
+    const b = fresh.bids[0]!;
+    expect(S.orderCompanyBudget(fresh)).toBe(1750);
+    expect(S.bidCustomerPrice(b)).toBe(1170);
+    expect(b.rounds!.map((r) => S.roundCustomerPrice(r))).toEqual([1040]);
+    expect(S.listingCustomerPrice({ priceUSD: 600, discountPct: 0 })).toBe(780);
+  });
+
+  it("uses the figure the database sent when only one side is known", () => {
+    expect(S.bidCustomerPrice({ priceUSD: 0, discountPct: 0, customerPriceUSD: 1170 })).toBe(1170);
+    expect(S.roundCustomerPrice({ priceUSD: 0, customerPriceUSD: 1040 })).toBe(1040);
+    expect(S.listingCustomerPrice({ priceUSD: 0, discountPct: 0, customerPriceUSD: 780 })).toBe(780);
+    expect(S.orderCompanyBudget({ companyBudgetUSD: 1750 })).toBe(1750);
+    expect(S.orderCustomerPrice({ customerPriceUSD: 780 })).toBe(780);
+    expect(S.orderCustomerPrice({ priceUSD: 600 })).toBe(780);
+    expect(S.orderCustomerPrice({})).toBeUndefined();
+  });
+});

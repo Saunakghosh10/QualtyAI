@@ -130,7 +130,8 @@ describe("service store", () => {
     const q = { service: base.service, location: "Mundra Port, Gujarat, Berth 04", date: "2026-11-05", commodity: "Rice (1121 Basmati)" };
     const hits = S.findListings(db().listings, q);
     expect(hits.map(S.listingNet)).toEqual([600, 700]);
-    expect(S.findListings(db().listings, { ...q, maxPriceUSD: 650 })).toHaveLength(1);
+    expect(hits.map(S.listingCustomerPrice)).toEqual([780, 910]);
+    expect(S.findListings(db().listings, { ...q, maxPriceUSD: 845 })).toHaveLength(1);
     expect(S.findListings(db().listings, { ...q, date: "2026-12-05" })).toHaveLength(0);
     expect(S.findListings(db().listings, { ...q, commodity: "Wheat" })).toHaveLength(0);
   });

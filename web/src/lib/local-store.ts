@@ -43,6 +43,8 @@ export interface Bid {
   status: "open" | "accepted" | "declined" | "withdrawn";
   /** Discount the company offers on priceUSD, in percent. */
   discountPct?: number;
+  /** What the customer pays for this bid; set when the database only sent the customer's figure. */
+  customerPriceUSD?: number;
   /** Negotiation history: every counter-offer from either side, oldest first. */
   rounds?: BidRound[];
   /** Date the company plans to follow up with the customer (YYYY-MM-DD). */
@@ -53,7 +55,10 @@ export interface Bid {
 
 export interface BidRound {
   by: "customer" | "company";
+  /** In the company's terms. */
   priceUSD: number;
+  /** Set when the database only sent the customer's figure. */
+  customerPriceUSD?: number;
   note: string;
   at: string;
 }
@@ -95,6 +100,8 @@ export interface Order {
   /** Service store listing the quick booking came from. */
   listingId?: string;
   invoice?: Invoice;
+  /** What companies see of the budget; set when the database only sent their figure. */
+  companyBudgetUSD?: number;
   /** Customer's budget for an enquiry, in USD. */
   budgetUSD?: number;
   /** Set when the invoice is fully paid. The chatroom opens from then on. */
@@ -114,6 +121,18 @@ export const customerPrice = (companyUSD: number) => Math.round(companyUSD * (1 
 export const companyPrice = (customerUSD: number) => Math.round(customerUSD / (1 + MARGIN_PCT / 100));
 /** The budget companies see for a customer's enquiry budget. */
 export const budgetForCompanies = (customerUSD: number) => Math.round(customerUSD * (1 - MARGIN_PCT / 100));
+
+/** Each side's figure. The database sends only the reader's side; local mode holds both. */
+export const listingCustomerPrice = (l: { priceUSD: number; discountPct: number; customerPriceUSD?: number }) =>
+  l.customerPriceUSD ?? customerPrice(bidNet(l));
+export const bidCustomerPrice = (b: Pick<Bid, "priceUSD" | "discountPct" | "customerPriceUSD">) =>
+  b.customerPriceUSD ?? customerPrice(bidNet(b));
+export const roundCustomerPrice = (r: Pick<BidRound, "priceUSD" | "customerPriceUSD">) =>
+  r.customerPriceUSD ?? customerPrice(r.priceUSD);
+export const orderCustomerPrice = (o: Partial<Pick<Order, "priceUSD" | "customerPriceUSD">>) =>
+  o.customerPriceUSD ?? (o.priceUSD == null ? undefined : customerPrice(o.priceUSD));
+export const orderCompanyBudget = (o: Partial<Pick<Order, "budgetUSD" | "companyBudgetUSD">>) =>
+  o.companyBudgetUSD ?? (o.budgetUSD == null ? undefined : budgetForCompanies(o.budgetUSD));
 
 /** Chatroom title: the group name if given, else the commodity, always with the order number. */
 export const roomTitle = (o: Pick<Order, "id" | "ref" | "commodity" | "roomName">) =>
@@ -689,6 +708,8 @@ export interface ServiceListing {
   createdAt: string;
   /** The company's KYC has been checked by the Qualty team. */
   companyVerified?: boolean;
+  /** Set when the database only sent the customer's figure (public store). */
+  customerPriceUSD?: number;
 }
 
 export const listingNet = (l: Pick<ServiceListing, "priceUSD" | "discountPct">) =>
@@ -738,7 +759,7 @@ export function deleteListing(id: string) {
 
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 
-/** Listings a customer can quick-book: matching service, place, date and budget; cheapest first. */
+/** Listings a customer can quick-book: matching service, place, date and budget (customer prices); cheapest first. */
 export function findListings(
   listings: ServiceListing[],
   q: { service: string; location: string; date: string; commodity?: string; maxPriceUSD?: number },
@@ -750,8 +771,8 @@ export function findListings(
     .filter((l) => !q.date || (l.availableFrom <= q.date && q.date <= l.availableTo))
     .filter((l) => place.length === 0 || l.location === ALL_INDIA || place.some((w) => norm(l.location).includes(w)))
     .filter((l) => !commodity || l.commodities.length === 0 || l.commodities.some((c) => commodity.includes(norm(c))))
-    .filter((l) => !q.maxPriceUSD || listingNet(l) <= q.maxPriceUSD)
-    .sort((a, b) => listingNet(a) - listingNet(b));
+    .filter((l) => !q.maxPriceUSD || listingCustomerPrice(l) <= q.maxPriceUSD)
+    .sort((a, b) => listingCustomerPrice(a) - listingCustomerPrice(b));
 }
 
 // ---------- Payments ----------

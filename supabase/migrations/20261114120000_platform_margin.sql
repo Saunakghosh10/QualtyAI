@@ -316,3 +316,9 @@ end $$;
 create trigger listings_standard_rate before insert or update on public.service_listings
   for each row execute function public.listings_standard_rate();
 revoke execute on function public.listings_standard_rate() from public, anon, authenticated;
+
+-- ---------- listings: company prices stay with the company ----------
+-- Everyone else reads the store through browse_listings(), which returns customer prices.
+drop policy listings_select on public.service_listings;
+create policy listings_select on public.service_listings for select to authenticated
+  using (public.has_company_role(company_id) or (select public.is_admin()));

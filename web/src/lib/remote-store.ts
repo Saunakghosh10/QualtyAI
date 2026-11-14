@@ -106,10 +106,23 @@ function mapAll(r: {
   session: Session | null;
 }): DB {
   const companyName = new Map(r.companies.map((c) => [c.id, c.name]));
+  const me = r.session?.userId;
+  // The database sends each reader only their own side of every price (order_figures, bid_figures,
+  // round_figures). Customers get customer prices; companies and admins get company prices.
+  const asCustomer = new Set(
+    r.session?.appRole === "admin" ? [] : r.orders.filter((o) => o.customer_id === me).map((o) => o.id),
+  );
+  const bidOrder = new Map(r.bids.map((b) => [b.id, b.order_id]));
   const roundsByBid = new Map<string, BidRound[]>();
   for (const x of [...r.rounds].sort((a, b) => a.created_at.localeCompare(b.created_at))) {
     const list = roundsByBid.get(x.bid_id) ?? [];
-    list.push({ by: x.side as BidRound["by"], priceUSD: Number(x.price_usd), note: x.note, at: x.created_at });
+    const price = Number(x.price_usd);
+    list.push({
+      by: x.side as BidRound["by"],
+      ...(asCustomer.has(bidOrder.get(x.bid_id) ?? "") ? { priceUSD: 0, customerPriceUSD: price } : { priceUSD: price }),
+      note: x.note,
+      at: x.created_at,
+    });
     roundsByBid.set(x.bid_id, list);
   }
   const paymentsByInvoice = new Map<string, Payment[]>();
@@ -137,7 +150,10 @@ function mapAll(r: {
     iec: iec ?? undefined,
     verification: v,
   });
-  const me = r.session?.userId;
+  const bidPrice = (b: Row<"bids">) =>
+    asCustomer.has(b.order_id)
+      ? { priceUSD: 0, customerPriceUSD: Number(b.price_usd) }
+      : { priceUSD: Number(b.price_usd), discountPct: Number(b.discount_pct) || undefined };
 
   const orders: Order[] = [...r.orders]
     .sort((a, b) => b.created_at.localeCompare(a.created_at))
@@ -149,12 +165,11 @@ function mapAll(r: {
           id: b.id,
           companyId: b.company_id,
           company: companyName.get(b.company_id) ?? "Inspection company",
-          priceUSD: Number(b.price_usd),
+          ...bidPrice(b),
           days: b.days,
           scope: b.scope,
           createdAt: b.created_at,
           status: b.status,
-          discountPct: Number(b.discount_pct) || undefined,
           rounds: roundsByBid.get(b.id) ?? [],
           followUpOn: b.follow_up_on ?? undefined,
           proposedDate: b.proposed_date ?? undefined,
@@ -189,7 +204,11 @@ function mapAll(r: {
         roomName: o.room_name ?? undefined,
         listingId: o.listing_id ?? undefined,
         invoice: invoiceByOrder.get(o.id),
-        budgetUSD: o.budget_usd === null ? undefined : Number(o.budget_usd),
+        ...(o.budget_usd === null
+          ? {}
+          : asCustomer.has(o.id) || r.session?.appRole === "admin"
+            ? { budgetUSD: Number(o.budget_usd) }
+            : { companyBudgetUSD: Number(o.budget_usd) }),
         paidAt: o.paid_at ?? undefined,
         paymentRef: o.payment_ref ?? undefined,
         paymentSentOn: o.payment_sent_on ?? undefined,
@@ -224,18 +243,18 @@ function mapAll(r: {
           id: b.id,
           companyId: b.company_id,
           company: companyName.get(b.company_id) ?? "Inspection company",
-          priceUSD: Number(b.price_usd),
+          ...bidPrice(b),
           days: b.days,
           scope: b.scope,
           createdAt: b.created_at,
           status: b.status,
-          discountPct: Number(b.discount_pct) || undefined,
           rounds: roundsByBid.get(b.id) ?? [],
           followUpOn: b.follow_up_on ?? undefined,
           proposedDate: b.proposed_date ?? undefined,
         })),
       createdAt: e.created_at,
-      budgetUSD: e.budget_usd === null ? undefined : Number(e.budget_usd),
+      // open_enquiries already took the margin off the budget.
+      companyBudgetUSD: e.budget_usd === null ? undefined : Number(e.budget_usd),
     });
   }
 
@@ -461,8 +480,10 @@ async function publicListings(): Promise<ServiceListing[]> {
       service: l.service,
       commodities: l.commodities,
       location: l.location,
-      priceUSD: Number(l.price_usd),
-      discountPct: Number(l.discount_pct),
+      // browse_listings returns what the customer pays, margin and discount included.
+      priceUSD: 0,
+      discountPct: 0,
+      customerPriceUSD: Number(l.price_usd),
       turnaroundDays: l.turnaround_days,
       surveyors: l.surveyors,
       availableFrom: l.available_from,
@@ -508,9 +529,19 @@ export function refresh(): Promise<void> {
           all("compliance_items"),
           all("saved_specs"),
         ]);
-      const enquiries = await openEnquiries();
+      const [enquiries, store] = await Promise.all([openEnquiries(), publicListings()]);
+      const db = mapAll({ orders, bids, rounds, invoices, payments, messages, evidence, companies, members, kyc, listings, certs, compliance, specs, enquiries, session });
+      // Customers can't read service_listings; companies read only their own. The rest come from the public store.
+      const mine = new Set(db.listings.map((l) => l.id));
+      const verified = new Map(store.map((l) => [l.id, l.companyVerified]));
       set({
-        db: mapAll({ orders, bids, rounds, invoices, payments, messages, evidence, companies, members, kyc, listings, certs, compliance, specs, enquiries, session }),
+        db: {
+          ...db,
+          listings: [
+            ...db.listings.map((l) => ({ ...l, companyVerified: verified.get(l.id) ?? l.companyVerified })),
+            ...store.filter((l) => !mine.has(l.id)),
+          ],
+        },
       });
     } while (again);
   })().finally(() => {
