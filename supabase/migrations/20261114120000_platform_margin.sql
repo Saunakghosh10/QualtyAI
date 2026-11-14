@@ -78,7 +78,6 @@ language sql stable security definer set search_path = '' as $$
               else public.budget_for_companies(o.budget_usd) end
     from public.orders o
    where o.customer_id = (select auth.uid()) or public.is_order_member(o.id) or public.is_admin()
-      or exists (select 1 from public.bids b where b.order_id = o.id and public.has_company_role(b.company_id))
 $$;
 
 /** Bid prices. Customers see the price with the margin and the discount already in it. */
@@ -144,6 +143,7 @@ language sql stable security definer set search_path = '' as $$
    where l.active and l.available_to >= current_date
    order by public.net_price(l.price_usd, l.discount_pct)
 $$;
+revoke execute on function public.browse_listings() from public;
 grant execute on function public.browse_listings() to anon, authenticated;
 
 -- ---------- prices at booking ----------
@@ -183,13 +183,13 @@ begin
   select * into b from public.bids where id = bid for update;
   if not found or not public.is_order_customer(b.order_id) then
     raise exception 'bid not found' using errcode = '42501'; end if;
-  if b.status <> 'open' then raise exception 'bid is not open'; end if;
+  if b.status <> 'open' then raise exception 'bid is not open' using errcode = '23514'; end if;
   net := public.net_price(b.price_usd, b.discount_pct);
   update public.orders
      set status = 'booked', inspection_company_id = b.company_id,
          price_usd = net, customer_price_usd = public.customer_price(net)
    where id = b.order_id and status = 'enquiry';
-  if not found then raise exception 'order is no longer taking bids'; end if;
+  if not found then raise exception 'order is no longer taking bids' using errcode = '23514'; end if;
   update public.bids set status = 'accepted' where id = bid;
   update public.bids set status = 'declined' where order_id = b.order_id and id <> bid and status = 'open';
 end $$;
@@ -264,7 +264,7 @@ declare o public.orders;
 begin
   if not public.is_admin() then raise exception 'not allowed' using errcode = '42501'; end if;
   select * into o from public.orders where id = oid for update;
-  if not found or o.price_usd is null then raise exception 'order has no agreed price yet'; end if;
+  if not found or o.price_usd is null then raise exception 'order has no agreed price yet' using errcode = '23514'; end if;
   if not (price >= o.price_usd) then
     raise exception 'customer price can''t be below the company''s' using errcode = '23514'; end if;
   if exists (select 1 from public.payments p join public.invoices i on i.id = p.invoice_id where i.order_id = oid) then
@@ -296,7 +296,9 @@ create table public.standard_rates (
   price_usd numeric(12, 2) not null check (price_usd > 0)
 );
 alter table public.standard_rates enable row level security;
-create policy standard_rates_select on public.standard_rates for select to anon, authenticated using (true);
+-- Company figures: inspection companies and the Qualty team only.
+create policy standard_rates_select on public.standard_rates for select to authenticated
+  using (public.is_company_user() or (select public.is_admin()));
 -- Placeholder figures until Vinay sends the real ones.
 insert into public.standard_rates values
   ('ECTN (Electronic Cargo Tracking Note)', 120),
@@ -307,9 +309,10 @@ create function public.listings_standard_rate() returns trigger
 language plpgsql security definer set search_path = '' as $$
 declare rate numeric;
 begin
+  -- One rate at every location in India, with no discount on top.
   select price_usd into rate from public.standard_rates where service = new.service;
-  if rate is not null and new.location = 'All India' and new.price_usd <> rate then
-    raise exception '% has a standard rate of $% across India.', new.service, rate using errcode = '23514';
+  if rate is not null and (new.price_usd <> rate or new.discount_pct <> 0) then
+    raise exception '% has a standard rate of $% across India.', new.service, trim_scale(rate) using errcode = '23514';
   end if;
   return new;
 end $$;

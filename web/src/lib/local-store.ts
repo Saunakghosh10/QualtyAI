@@ -119,7 +119,10 @@ export const MARGIN_PCT = 30;
 export const customerPrice = (companyUSD: number) => Math.round(companyUSD * (1 + MARGIN_PCT / 100));
 /** The company price behind a customer price (used for customer counter-offers). */
 export const companyPrice = (customerUSD: number) => Math.round(customerUSD / (1 + MARGIN_PCT / 100));
-/** The budget companies see for a customer's enquiry budget. */
+/**
+ * The budget companies see for a customer's enquiry budget. Deliberately 30% off the budget (Vinay, Nov 14),
+ * not budget / 1.3: a company bidding exactly what it sees leaves the customer price under budget.
+ */
 export const budgetForCompanies = (customerUSD: number) => Math.round(customerUSD * (1 - MARGIN_PCT / 100));
 
 /** Each side's figure. The database sends only the reader's side; local mode holds both. */
@@ -720,8 +723,9 @@ export function listingProblems(l: Omit<ServiceListing, "id" | "createdAt" | "co
   if (!l.service.trim()) p.push("Pick a service.");
   if (!l.location.trim()) p.push("Add the port or city.");
   if (!(l.priceUSD > 0)) p.push("Price must be more than $0.");
+  // Standard certificate services sell at one rate at every location in India, with no discount.
   const rate = STANDARD_RATES[l.service];
-  if (rate != null && l.location.trim() === ALL_INDIA && l.priceUSD !== rate)
+  if (rate != null && (l.priceUSD !== rate || l.discountPct !== 0))
     p.push(`${l.service} has a standard rate of $${rate} across India.`);
   if (l.discountPct < 0 || l.discountPct >= 100) p.push("Discount must be between 0 and 99%.");
   if (!(l.turnaroundDays >= 1)) p.push("Turnaround must be at least 1 day.");

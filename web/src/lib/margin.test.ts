@@ -118,6 +118,9 @@ describe("standard certificate services", () => {
       `${ectn} has a standard rate of $${S.STANDARD_RATES[ectn]} across India.`,
     ]);
     expect(S.saveListing({ ...base, service: ectn, location: S.ALL_INDIA, priceUSD: S.STANDARD_RATES[ectn]! })).toEqual([]);
+    const rule = `${ectn} has a standard rate of $${S.STANDARD_RATES[ectn]} across India.`;
+    expect(S.saveListing({ ...base, service: ectn, location: "Chennai Port", priceUSD: 999 })).toEqual([rule]);
+    expect(S.saveListing({ ...base, service: ectn, location: S.ALL_INDIA, priceUSD: S.STANDARD_RATES[ectn]!, discountPct: 50 })).toEqual([rule]);
     const found = S.findListings(JSON.parse(localStorage.getItem("qualty_store_v1")!).listings, { service: ectn, location: "Chennai Port", date: "2026-12-01" });
     expect(found).toHaveLength(1);
   });

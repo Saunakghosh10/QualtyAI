@@ -19,9 +19,6 @@ import AccountModal from "@/components/AccountModal";
 import Toaster from "@/components/Toaster";
 import { useViewer } from "@/lib/viewer";
 
-/** Set once a company or admin viewer has been sent to the dashboard, so coming back to "/" shows the site. */
-const REDIRECTED_KEY = "qualty_home_redirected";
-
 export default function Home() {
   const [isBookingOpen, setIsBookingOpen] = useState<boolean>(false);
   const [injectedParams, setInjectedParams] = useState<CommodityParams | null>(null);
@@ -35,19 +32,13 @@ export default function Home() {
   // Order chatrooms belong to customers (and demo mode); visitors have none yet.
   const showRooms = viewer.kind === "customer" || viewer.kind === "demo";
 
-  // Inspection companies and the Qualty team work from /dashboard. Send them there once per
-  // browser session; "/?view=site" (or a second visit) shows the booking site with a banner.
+  // Inspection companies work from /dashboard and never get the customer booking site (Vinay, Nov 14).
+  // The Qualty team lands there too, but can open "/?view=site" to check what customers see.
   useEffect(() => {
     if (!isCompany) return;
-    if (new URLSearchParams(window.location.search).get("view") === "site") return;
-    try {
-      if (sessionStorage.getItem(REDIRECTED_KEY)) return;
-      sessionStorage.setItem(REDIRECTED_KEY, "1");
-    } catch {
-      // Storage blocked: still redirect, the banner covers later visits.
-    }
+    if (viewer.kind === "admin" && new URLSearchParams(window.location.search).get("view") === "site") return;
     router.replace("/dashboard");
-  }, [isCompany, router]);
+  }, [isCompany, viewer.kind, router]);
 
   // Each entry point opens the dialog in its own mode (the "n" re-seeds the dialog even when nothing else changed).
   const openIn = (mode: "quick" | "inquiry", service: string) => {

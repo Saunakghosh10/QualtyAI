@@ -138,3 +138,61 @@ export default function CompanyCredentials() {
     </section>
   );
 }
+
+const BENEFITS = [
+  {
+    title: "Jobs come to you",
+    body: "Customers book your listed services straight away, and enquiries at your ports land on your dashboard to bid on.",
+  },
+  {
+    title: "Safe payments",
+    body: "The customer pays Qualty before the chat opens. Your payout for the job is in your Payouts tab.",
+  },
+  {
+    title: "More markets",
+    body: "Sell ECTN, Certificates of Conformity and Customs Import Control to exporters shipping to Africa and Southeast Asia.",
+  },
+];
+
+/** Vinay's three reasons for a company to join: delivery speed, safe payments, multi-market reach. */
+export function CompanyBenefits() {
+  return (
+    <section className="section" aria-label="Why list on Qualty">
+      <ul className="ben">
+        {BENEFITS.map((b) => (
+          <li key={b.title}>
+            <h3>{b.title}</h3>
+            <p>{b.body}</p>
+          </li>
+        ))}
+      </ul>
+      <style jsx>{`
+        .ben {
+          list-style: none;
+          margin: 0 auto;
+          padding: 0;
+          max-width: 960px;
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+          gap: 24px 32px;
+        }
+        .ben li {
+          border-top: 2px solid var(--accent-primary);
+          padding-top: 14px;
+        }
+        .ben h3 {
+          font-size: 16px;
+          font-weight: 600;
+          color: var(--text-main);
+          margin-bottom: 6px;
+        }
+        .ben p {
+          font-size: 14px;
+          line-height: 1.55;
+          color: var(--text-secondary);
+          text-wrap: pretty;
+        }
+      `}</style>
+    </section>
+  );
+}

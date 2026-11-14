@@ -434,11 +434,10 @@ async function bidRows(): Promise<Row<"bids">[]> {
   if (rows.error) throw new Error(`Couldn't load bids: ${rows.error.message}`);
   if (figs.error) throw new Error(`Couldn't load bid prices: ${figs.error.message}`);
   const f = new Map((figs.data ?? []).map((x) => [x.bid_id, x]));
-  return ((rows.data ?? []) as unknown as Row<"bids">[]).map((b) => ({
-    ...b,
-    price_usd: f.get(b.id)?.price_usd ?? 0,
-    discount_pct: f.get(b.id)?.discount_pct ?? 0,
-  }));
+  // A bid whose figures haven't arrived yet is left out until the next refresh, never shown at $0.
+  return ((rows.data ?? []) as unknown as Row<"bids">[])
+    .filter((b) => f.has(b.id))
+    .map((b) => ({ ...b, price_usd: f.get(b.id)!.price_usd, discount_pct: f.get(b.id)!.discount_pct }));
 }
 
 async function roundRows(): Promise<Row<"bid_rounds">[]> {
@@ -446,7 +445,9 @@ async function roundRows(): Promise<Row<"bid_rounds">[]> {
   if (rows.error) throw new Error(`Couldn't load offers: ${rows.error.message}`);
   if (figs.error) throw new Error(`Couldn't load offer prices: ${figs.error.message}`);
   const f = new Map((figs.data ?? []).map((x) => [x.round_id, x.price_usd]));
-  return ((rows.data ?? []) as unknown as Row<"bid_rounds">[]).map((r) => ({ ...r, price_usd: f.get(r.id) ?? 0 }));
+  return ((rows.data ?? []) as unknown as Row<"bid_rounds">[])
+    .filter((r) => f.has(r.id))
+    .map((r) => ({ ...r, price_usd: f.get(r.id)! }));
 }
 
 type Enquiry = {
@@ -1141,7 +1142,7 @@ export async function recordPayment(orderId: string, p: Omit<Payment, "id">): Pr
   const left = due - p.amountUSD;
   await text(
     orderId,
-    `Payment of $${p.amountUSD.toLocaleString()} received (${p.method}${p.reference ? `, ref ${p.reference}` : ""}). ${left > 0 ? `$${left.toLocaleString()} still due.` : "Invoice fully paid."}`,
+    `Payment received (${p.method}${p.reference ? `, ref ${p.reference}` : ""}). ${left > 0 ? "Part of the invoice is still due." : "Invoice fully paid."}`,
   );
   await refresh();
   return [];

@@ -9,7 +9,7 @@ import Footer from "@/components/Footer";
 import AccountModal from "@/components/AccountModal";
 import Toaster from "@/components/Toaster";
 import DashboardStill from "@/components/companies/DashboardStill";
-import CompanyCredentials from "@/components/companies/CompanyCredentials";
+import CompanyCredentials, { CompanyBenefits } from "@/components/companies/CompanyCredentials";
 import { isRemote, MARGIN_PCT, budgetForCompanies } from "@/lib/store";
 import { useViewer } from "@/lib/viewer";
 
@@ -86,6 +86,8 @@ export default function CompaniesPage() {
       </section>
 
       <DashboardStill />
+
+      <CompanyBenefits />
 
       <section className="section cp-steps-wrap" aria-labelledby="cp-steps-title">
         <div className="section-head">

@@ -12,6 +12,9 @@ const summarize = (v: Awaited<ReturnType<typeof scan>>["violations"]) =>
   v.map((x) => `${x.impact} ${x.id}: ${x.nodes.length} node(s) — ${x.nodes[0]?.target.join(" ")}`);
 
 const useTheme = async (page: Page, theme: "light" | "dark") => {
+  // globals.css fades every colour change over 200ms; reduced motion makes it instant, so axe
+  // measures settled colours instead of a button caught halfway through its fade.
+  await page.emulateMedia({ reducedMotion: "reduce" });
   await page.addInitScript((t) => localStorage.setItem("qualty_theme", t), theme);
 };
 
