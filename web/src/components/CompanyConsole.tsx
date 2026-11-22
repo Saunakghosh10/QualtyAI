@@ -54,6 +54,8 @@ import {
   complianceState,
   uncoveredCertTypes,
   setCustomerPrice,
+  adminCreateOrder,
+  assignCompany,
   customerPrice,
   orderCustomerPrice,
   orderCompanyBudget,
@@ -784,8 +786,85 @@ function QualtyTeamTab() {
           ["Collected", sum((o) => (o.invoice ? invoicePaid(o.invoice) : 0)), "var(--accent-text)"],
         ]}
       />
+      <NewOrder />
       {orders.length === 0 ? <Empty>No booked orders yet.</Empty> : orders.map((o) => <MarginRow key={o.id} order={o} company={companyName(o)} />)}
     </Panel>
+  );
+}
+
+const BLANK_ORDER = {
+  customerEmail: "", service: SERVICES[0] as string, commodity: "", location: "", inspectionDate: "",
+  volumeTons: "", buyerName: "", sellerName: "", companyId: "", priceUSD: "",
+};
+
+/** The Qualty team creates an order for a customer: with a company and its price it is booked and invoiced, without them it opens for bids. */
+function NewOrder() {
+  const db = useDB();
+  const [open, setOpen] = useState(false);
+  const [f, setF] = useState(BLANK_ORDER);
+  const [problems, setProblems] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+  const set = (k: keyof typeof BLANK_ORDER) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setF({ ...f, [k]: e.target.value });
+  const price = Number(f.priceUSD);
+  if (!open)
+    return (
+      <div style={{ marginBottom: "12px" }}>
+        <button className="btn-secondary" style={{ padding: "8px 14px", fontSize: "13px" }} onClick={() => { setF(BLANK_ORDER); setProblems([]); setOpen(true); }}>
+          New order for a customer
+        </button>
+      </div>
+    );
+  return (
+    <form
+      aria-label="New order for a customer"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        setBusy(true);
+        const p = await problemsOf(
+          adminCreateOrder({
+            customerEmail: f.customerEmail, service: f.service, commodity: f.commodity, location: f.location,
+            inspectionDate: f.inspectionDate, volumeTons: Number(f.volumeTons), buyerName: f.buyerName, sellerName: f.sellerName,
+            companyId: f.companyId || undefined, priceUSD: f.priceUSD === "" ? undefined : price,
+          }),
+        );
+        setBusy(false);
+        setProblems(p);
+        if (!p.length) setOpen(false);
+      }}
+      style={{ ...row, display: "block", marginBottom: "12px" }}
+    >
+      <p style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-main)", margin: "0 0 4px" }}>New order for a customer</p>
+      <p style={{ fontSize: "12px", color: "var(--text-muted)", margin: "0 0 12px" }}>
+        The customer needs a Qualty account first. Pick a company and its price to book it now, or leave both empty to open it for bids.
+      </p>
+      <div style={grid}>
+        <label style={label}>Customer email<input type="email" value={f.customerEmail} onChange={set("customerEmail")} style={field} /></label>
+        <label style={label}>Service
+          <select value={f.service} onChange={set("service")} style={field}>{SERVICES.map((s) => <option key={s}>{s}</option>)}</select>
+        </label>
+        <label style={label}>Commodity<input value={f.commodity} onChange={set("commodity")} style={field} /></label>
+        <label style={label}>Port or city<input value={f.location} onChange={set("location")} style={field} /></label>
+        <label style={label}>Inspection date<input type="date" value={f.inspectionDate} onChange={set("inspectionDate")} style={field} /></label>
+        <label style={label}>Volume (tons)<input type="number" min={0} step="any" value={f.volumeTons} onChange={set("volumeTons")} style={{ ...field, ...money }} /></label>
+        <label style={label}>Buyer<input value={f.buyerName} onChange={set("buyerName")} style={field} /></label>
+        <label style={label}>Seller<input value={f.sellerName} onChange={set("sellerName")} style={field} /></label>
+        <label style={label}>Inspection company
+          <select value={f.companyId} onChange={set("companyId")} style={field}>
+            <option value="">None, open for bids</option>
+            {db.companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </label>
+        <label style={label}>Company price (USD)<input type="number" min={0} step="any" value={f.priceUSD} onChange={set("priceUSD")} disabled={!f.companyId} style={{ ...field, ...money }} /></label>
+      </div>
+      {f.companyId && price > 0 && (
+        <p style={{ fontSize: "12px", color: "var(--text-muted)", marginTop: "8px", ...money }}>Customer is invoiced {usd(customerPrice(price))}, including Qualty&apos;s 30%.</p>
+      )}
+      <div style={{ display: "flex", gap: "12px", alignItems: "center", marginTop: "12px" }}>
+        <button type="submit" className="btn-primary" disabled={busy} style={{ padding: "8px 14px", fontSize: "13px" }}>{busy ? "Creating…" : "Create order"}</button>
+        <button type="button" style={linkBtn} onClick={() => setOpen(false)}>Cancel</button>
+      </div>
+      <Problems list={problems} />
+    </form>
   );
 }
 
@@ -804,7 +883,9 @@ function MarginRow({ order, company }: { order: Order; company: string }) {
   const left = i ? invoiceTotal(i) - invoicePaid(i) : 0;
   const status = paymentStatus(order);
   const priceFixed = !!i?.payments.length;
-  const [open, setOpen] = useState<"price" | "invoice" | "payment" | null>(null);
+  const [open, setOpen] = useState<"price" | "invoice" | "payment" | "assign" | null>(null);
+  const [cid, setCid] = useState("");
+  const companies = useDB().companies;
   const [price, setPrice] = useState("");
   const [inv, setInv] = useState({ discount: "", due: plusDays(7) });
   const [pay, setPay] = useState({ amount: "", method: METHODS[0], reference: "", on: today() });
@@ -836,6 +917,7 @@ function MarginRow({ order, company }: { order: Order; company: string }) {
         </div>
         {open === null && (
           <div style={{ display: "flex", gap: "14px", flexWrap: "wrap" }}>
+            {!order.companyId && !order.inspectionCompany && order.status !== "completed" && companies.length > 0 && <button style={linkBtn} onClick={() => { setCid(companies[0]?.id ?? ""); start("assign"); }}>Assign company</button>}
             {order.priceUSD != null && !priceFixed && <button style={linkBtn} onClick={() => start("price")}>Set customer price</button>}
             {!i && <button style={linkBtn} onClick={() => start("invoice")}>Raise invoice</button>}
             {i && status !== "paid" && <button style={linkBtn} onClick={() => start("payment")}>Record payment</button>}
@@ -874,6 +956,20 @@ function MarginRow({ order, company }: { order: Order; company: string }) {
         </p>
       )}
 
+      {open === "assign" && (
+        <form onSubmit={async (e) => { e.preventDefault(); done(await problemsOf(assignCompany(order.id, cid))); }} style={formStyle}>
+          <label style={label}>
+            Inspection company
+            <select value={cid} onChange={(e) => setCid(e.target.value)} style={field}>
+              {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </label>
+          <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+            <button type="submit" className="btn-primary" disabled={!cid} style={{ padding: "8px 14px", fontSize: "13px" }}>Assign</button>
+            {cancel}
+          </div>
+        </form>
+      )}
       {open === "price" && order.priceUSD != null && (
         <form onSubmit={async (e) => { e.preventDefault(); done(await problemsOf(setCustomerPrice(order.id, Number(price)))); }} style={formStyle}>
           <label style={label}>

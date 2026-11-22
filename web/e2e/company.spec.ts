@@ -300,3 +300,45 @@ test("standard-rate services: ECTN is $120 across India", async ({ page }) => {
   await s.getByLabel("Port or city").selectOption("All India");
   await expect(s.getByText("$156")).toBeVisible();
 });
+
+test("Qualty team creates an order by hand: booked and invoiced at price × 1.3, or open for bids", async ({ page }) => {
+  await setUpCompany(page);
+  const c = dash(page);
+  await tab(page, "Qualty team");
+  await c.getByRole("button", { name: "New order for a customer" }).click();
+  const form = c.getByRole("form", { name: "New order for a customer" });
+  await form.getByRole("button", { name: "Create order" }).click();
+  await expect(form.getByRole("alert")).toContainText("Add the customer's email.");
+
+  await form.getByLabel("Customer email").fill("exports@alkhaleej.ae");
+  await form.getByLabel("Commodity").fill("Basmati rice");
+  await form.getByLabel("Port or city").fill("Mundra");
+  await form.getByLabel("Inspection date").fill("2026-12-01");
+  await form.getByLabel("Volume (tons)").fill("500");
+  await form.getByLabel("Buyer").fill("Al-Khaleej Foods");
+  await form.getByLabel("Seller").fill("Punjab Rice Mills");
+  await form.getByLabel("Inspection company").selectOption({ label: "Acme Surveyors" });
+  await form.getByLabel("Company price (USD)").fill("1000");
+  await expect(form).toContainText("Customer is invoiced $1,300, including Qualty's 30%.");
+  await form.getByRole("button", { name: "Create order" }).click();
+  await expect(form).toHaveCount(0);
+
+  const row = c.locator("div", { has: page.getByText("Acme Surveyors", { exact: true }) }).filter({ has: page.getByText("Company price") }).last();
+  await expect(row).toContainText(/Company price\s*\$1,000/);
+  await expect(row).toContainText(/Customer price\s*\$1,300/);
+  await expect(row).toContainText(/\$0 of \$1,300 paid/);
+
+  // Without a company or price it opens as an enquiry for companies to bid on.
+  await c.getByRole("button", { name: "New order for a customer" }).click();
+  await form.getByLabel("Customer email").fill("exports@alkhaleej.ae");
+  await form.getByLabel("Commodity").fill("Sugar");
+  await form.getByLabel("Port or city").fill("Kandla");
+  await form.getByLabel("Inspection date").fill("2026-12-05");
+  await form.getByLabel("Volume (tons)").fill("200");
+  await form.getByLabel("Buyer").fill("Gulf Sweets");
+  await form.getByLabel("Seller").fill("Kutch Sugar");
+  await form.getByRole("button", { name: "Create order" }).click();
+  await expect(form).toHaveCount(0);
+  await tab(page, "Enquiries");
+  await expect(c.getByRole("tabpanel")).toContainText("Sugar");
+});

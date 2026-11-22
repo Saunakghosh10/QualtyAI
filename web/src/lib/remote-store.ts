@@ -9,6 +9,8 @@ import type { CommodityParams } from "@/components/CommodityCalibrator";
 import type { Database, Json } from "./database.types";
 import { sb } from "./supabase";
 import {
+  type ManualOrder,
+  manualOrderProblems,
   type DB,
   type Order,
   type Bid,
@@ -750,6 +752,37 @@ export async function setCustomerPrice(orderId: string, priceUSD: number): Promi
   need();
   if (!(priceUSD > 0)) return ["Price must be more than $0."];
   const { error } = await sb().rpc("set_customer_price", { oid: orderId, price: priceUSD });
+  if (error) return [error.message];
+  await refresh();
+  return [];
+}
+
+/** The Qualty team creates an order for a customer who already has an account. */
+export async function adminCreateOrder(m: ManualOrder): Promise<string[]> {
+  need();
+  const p = manualOrderProblems(m);
+  if (p.length) return p;
+  const { error } = await sb().rpc("admin_create_order", {
+    customer_email: m.customerEmail.trim(),
+    service: m.service,
+    commodity: m.commodity.trim(),
+    location: m.location.trim(),
+    inspection_date: m.inspectionDate,
+    volume_tons: m.volumeTons,
+    buyer_name: m.buyerName.trim(),
+    seller_name: m.sellerName.trim(),
+    company_id: m.companyId ?? null,
+    price_usd: m.priceUSD ?? null,
+  });
+  if (error) return [error.message];
+  await refresh();
+  return [];
+}
+
+/** The Qualty team assigns an inspection company to a booked order that has none. */
+export async function assignCompany(orderId: string, companyId: string): Promise<string[]> {
+  need();
+  const { error } = await sb().rpc("assign_company", { oid: orderId, cid: companyId });
   if (error) return [error.message];
   await refresh();
   return [];
