@@ -6,6 +6,7 @@ import Navbar from "@/components/Navbar";
 import SignedInBanner from "@/components/SignedInBanner";
 import WhoItsFor from "@/components/WhoItsFor";
 import Hero from "@/components/Hero";
+import HowQualtyWorks from "@/components/explainer/HowQualtyWorks";
 import StandardsStrip from "@/components/StandardsStrip";
 import ServiceStore, { type StorePick } from "@/components/ServiceStore";
 import CommodityCalibrator, { CommodityParams } from "@/components/CommodityCalibrator";
@@ -77,6 +78,9 @@ export default function Home() {
 
       {/* Two audiences: people booking inspections, and the companies doing them */}
       <WhoItsFor />
+
+      {/* How it works: coded walkthrough from store to certificate */}
+      <HowQualtyWorks />
 
       {/* Standards & Accreditation Strip */}
       <StandardsStrip />

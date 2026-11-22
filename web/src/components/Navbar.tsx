@@ -49,6 +49,7 @@ export default function Navbar({ onOpenBooking }: NavbarProps) {
   }, []);
 
   const links = [
+    { href: "/#how-it-works", label: "How it works" },
     { href: "/#services", label: "Services" },
     { href: "/#calibrator", label: "Calibrator" },
     ...(kind === "customer" || kind === "demo" ? [{ href: "/#orders", label: "Orders" }] : []),
