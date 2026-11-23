@@ -16,6 +16,8 @@ const eslintConfig = defineConfig([
     "coverage/**",
     "test-results/**",
     "playwright-report/**",
+    // Vendored Stageshow kit (MIT, see kit/LICENSE). Kept as upstream ships it.
+    "src/components/explainer/kit/**",
   ]),
 ]);
 

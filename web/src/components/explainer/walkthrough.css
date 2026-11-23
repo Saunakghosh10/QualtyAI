@@ -1,0 +1,296 @@
+/* How Qualty works: the walkthrough scene. Qualty's tokens, kit geometry.
+   Spacing on a 4px grid; one accent (Qualty blue) for the action and the selection. */
+
+.qx-stage .ss-stage {
+  overflow: hidden;
+}
+
+.qx-stage {
+  background: var(--bg-subtle);
+  border-radius: 16px;
+  border: 1px solid var(--border-main);
+}
+
+/* Wide: the window sits 40px in from left, top and right, and runs off the bottom. */
+.qx-window {
+  position: absolute;
+  left: 40px;
+  right: 40px;
+  top: 32px;
+  height: 460px;
+  background: var(--bg-card);
+  box-shadow: var(--shadow-md);
+  border: 1px solid var(--border-main);
+}
+/* Compact: a tighter crop, the window runs off the right and the bottom. */
+.qx-window[data-layout="compact"] {
+  left: 16px;
+  right: -96px;
+  top: 16px;
+  height: 380px;
+}
+.qx-window { will-change: transform; }
+
+.qx-scenes {
+  position: relative;
+  height: 100%;
+}
+.qx-scene {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 120ms var(--ease-out), visibility 0s linear 120ms;
+}
+.qx-scene[data-show] {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 200ms var(--ease-out), visibility 0s;
+}
+
+.qx-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 24px 28px;
+  font-family: var(--sans);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+[data-layout="compact"] .qx-pane { padding: 16px 112px 16px 16px; gap: 12px; }
+
+.qx-eyebrow { font-size: 12px; font-weight: 600; color: var(--accent-primary); }
+.qx-title { font-family: var(--heading); font-size: 20px; font-weight: 600; color: var(--text-main); }
+[data-layout="compact"] .qx-title { font-size: 17px; }
+.qx-strong { color: var(--text-main); font-weight: 600; }
+.qx-muted { color: var(--text-muted); }
+.qx-mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.qx-note { font-size: 12px; }
+
+.qx-pick { display: flex; gap: 8px; flex-wrap: wrap; }
+.qx-select {
+  display: inline-flex;
+  flex-direction: column;
+  width: 160px;
+  padding: 8px 12px;
+  border: 1px solid var(--border-main);
+  border-radius: 8px;
+  background: var(--bg-card);
+  font-size: 12px;
+}
+[data-layout="compact"] .qx-select { width: auto; min-width: 0; flex: 1 1 0; }
+
+.qx-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 240ms var(--ease-out), transform 240ms var(--ease-out);
+}
+.qx-list[data-show] { opacity: 1; transform: none; }
+
+.qx-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 16px;
+  border: 1px solid var(--border-main);
+  border-radius: 12px;
+  background: var(--bg-card);
+  transition: border-color 200ms var(--ease-out);
+}
+.qx-row[data-on] { border-color: var(--accent-primary); }
+.qx-row--faint { height: 52px; }
+.qx-row-main { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.qx-verified { font-size: 12px; color: var(--success); font-weight: 500; }
+.qx-price { display: flex; flex-direction: column; align-items: flex-end; font-size: 12px; }
+.qx-price .qx-strong { font-size: 16px; }
+[data-layout="compact"] .qx-row--lead { flex-wrap: wrap; gap: 8px 12px; }
+[data-layout="compact"] .qx-row-main { flex-basis: 100%; }
+[data-layout="compact"] .qx-price { flex-direction: row; align-items: baseline; gap: 4px; flex: 1; }
+.qx-bar { display: block; height: 8px; border-radius: 4px; background: var(--bg-inset); }
+
+.qx-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 9999px;
+  background: var(--accent-fill);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.qx-btn[data-pressed] { background: var(--accent-fill-hover); }
+.qx-btn--quiet {
+  background: var(--bg-card);
+  color: var(--text-main);
+  border: 1px solid var(--border-main);
+}
+
+.qx-invoice {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--border-main);
+  border-radius: 12px;
+  background: var(--bg-card);
+  max-width: 560px;
+}
+.qx-inv-head { display: flex; justify-content: space-between; font-size: 14px; }
+.qx-pay { display: flex; gap: 8px; align-items: center; max-width: 560px; }
+.qx-field > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: clip; }
+.qx-field {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  border: 1px solid var(--border-main);
+  border-radius: 8px;
+  background: var(--bg-inset);
+  color: var(--text-main);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.qx-status {
+  max-width: 560px;
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  background: var(--bg-inset);
+  color: var(--text-secondary);
+  transition: background-color 200ms var(--ease-out), color 200ms var(--ease-out);
+}
+.qx-status[data-tone="confirmed"] { background: var(--success-bg); color: var(--success); }
+
+.qx-pane { height: 100%; overflow: hidden; }
+.qx-room { gap: 8px; }
+.qx-thread {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 520px;
+  overflow: hidden;
+}
+[data-layout="compact"] .qx-status { min-height: 76px; }
+.qx-msg {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity 240ms var(--ease-out), transform 240ms var(--ease-out);
+}
+.qx-msg[data-show] { opacity: 1; transform: none; }
+.qx-meta { font-size: 11.5px; color: var(--text-muted); }
+.qx-bubble {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid var(--border-main);
+  border-radius: 10px;
+  background: var(--bg-card);
+  color: var(--text-main);
+  font-size: 13.5px;
+}
+.qx-kind { font-size: 11.5px; font-weight: 600; color: var(--accent-primary); }
+.qx-photo {
+  width: 160px;
+  height: 56px;
+  border-radius: 6px;
+  background: var(--bg-inset);
+  display: grid;
+  place-items: center;
+}
+/* The seal is drawn on the photo itself, so the photo stays one picture. */
+.qx-photo::after {
+  content: "";
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 4px solid var(--warning);
+  background: var(--bg-card);
+}
+.qx-flag {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--warning-border);
+  background: var(--warning-bg);
+  color: var(--warning-text, var(--warning));
+  font-size: 12.5px;
+  opacity: 0;
+  transition: opacity 240ms var(--ease-out);
+}
+.qx-flag[data-show] { opacity: 1; }
+.qx-flag .qx-strong { color: inherit; }
+[data-layout="compact"] .qx-msg:nth-child(3) { display: none; }
+
+.qx-cert-pane { flex-direction: row; gap: 24px; align-items: flex-start; }
+[data-layout="compact"] .qx-cert-pane { flex-direction: column; gap: 16px; }
+.qx-cert {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 300px;
+  padding: 20px;
+  border: 1px solid var(--border-main);
+  border-radius: 12px;
+  background: var(--bg-card);
+  box-shadow: var(--shadow-sm);
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity 280ms var(--ease-out), transform 280ms var(--ease-out);
+}
+[data-layout="compact"] .qx-cert { width: 100%; }
+.qx-cert[data-show] { opacity: 1; transform: none; }
+.qx-cert-no { font-size: 17px; font-weight: 600; color: var(--text-main); }
+.qx-cert-code {
+  display: flex;
+  justify-content: space-between;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-main);
+  font-size: 12.5px;
+}
+.qx-verify { display: flex; flex-direction: column; gap: 12px; flex: 1; min-width: 0; padding-top: 4px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .qx-list, .qx-msg, .qx-cert { transform: none; }
+}
+
+/* Moving parts stay on their own layer so they land on whole pixels. */
+.qx-list, .qx-msg, .qx-cert { will-change: transform, opacity; }
+
+/* Compact: the pane runs off the window's bottom edge; the chatroom keeps the
+   two posts and the flag, and the certificate drops its second line. */
+[data-layout="compact"] .qx-pane { padding-bottom: 0; }
+[data-layout="compact"] .qx-msg--extra,
+[data-layout="compact"] .qx-cert-what { display: none; }
+[data-layout="compact"] .qx-cert { padding: 16px; }
+[data-layout="compact"] .qx-cert-pane { gap: 12px; align-items: stretch; }
+
+/* The evidence post: the photo sits beside its caption, the way the chatroom lays out media. */
+.qx-bubble--media { flex-direction: row; align-items: center; gap: 12px; }
+.qx-media-text { display: flex; flex-direction: column; gap: 4px; }
+.qx-bubble--media { padding: 12px; }
+.qx-bubble--media .qx-photo { width: 40px; height: 40px; border-radius: 6px; }
+.qx-bubble--media .qx-photo::after { width: 24px; height: 24px; border-width: 3px; }
+.qx-room { padding-top: 20px; }
+[data-layout="compact"] .qx-room { padding-top: 16px; }
