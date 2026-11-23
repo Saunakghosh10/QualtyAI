@@ -886,6 +886,79 @@ export function setCustomerPrice(orderId: string, priceUSD: number): string[] {
   return [];
 }
 
+/** What the Qualty team fills in to create an order for a customer by hand. */
+export interface ManualOrder {
+  customerEmail: string;
+  service: string;
+  commodity: string;
+  location: string;
+  inspectionDate: string;
+  volumeTons: number;
+  buyerName: string;
+  sellerName: string;
+  /** Both set: booked and invoiced at once. Neither: opens as an enquiry for companies to bid on. */
+  companyId?: string;
+  priceUSD?: number;
+}
+
+export function manualOrderProblems(m: ManualOrder): string[] {
+  const p: string[] = [];
+  if (!/^\S+@\S+\.\S+$/.test(m.customerEmail.trim())) p.push("Add the customer's email.");
+  if (!m.service.trim()) p.push("Pick a service.");
+  if (!m.commodity.trim()) p.push("Add the commodity.");
+  if (!m.location.trim()) p.push("Add the port or city.");
+  if (!m.inspectionDate) p.push("Pick the inspection date.");
+  if (!(m.volumeTons > 0)) p.push("Volume must be more than 0 tons.");
+  if (!m.buyerName.trim() || !m.sellerName.trim()) p.push("Add the buyer and the seller.");
+  if (!!m.companyId !== (m.priceUSD != null)) p.push("Set both the company and its price, or neither.");
+  if (m.priceUSD != null && !(m.priceUSD > 0)) p.push("Price must be more than $0.");
+  return p;
+}
+
+/** The Qualty team creates an order for a customer. With a company and price it is booked and invoiced at price × 1.3. */
+export function adminCreateOrder(m: ManualOrder): string[] {
+  const p = manualOrderProblems(m);
+  if (p.length) return p;
+  const company = m.companyId ? load().companies.find((c) => c.id === m.companyId) : undefined;
+  if (m.companyId && !company) return ["Company not found."];
+  const party = (name: string): Party => ({ name: name.trim(), verification: "unverified" });
+  const o = createOrder({
+    mode: company ? "quick" : "inquiry",
+    service: m.service,
+    commodity: m.commodity.trim(),
+    spec: null,
+    specLabel: null,
+    buyer: party(m.buyerName),
+    seller: party(m.sellerName),
+    location: m.location.trim(),
+    inspectionDate: m.inspectionDate,
+    volumeTons: m.volumeTons,
+    customerName: m.customerEmail.trim().toLowerCase(),
+    inspectionCompany: company?.name,
+    priceUSD: company ? m.priceUSD : undefined,
+  });
+  if (company) updateOrder(o.id, (x) => ({ ...x, companyId: company.id }));
+  systemMessage(o.id, "The Qualty team created this order.");
+  return [];
+}
+
+/** The Qualty team assigns an inspection company to a booked order that has none yet. */
+export function assignCompany(orderId: string, companyId: string): string[] {
+  const o = getOrder(orderId);
+  const c = load().companies.find((x) => x.id === companyId);
+  if (!o) return ["Order not found."];
+  if (!c) return ["Company not found."];
+  if (o.status === "enquiry" || o.status === "completed" || o.companyId) return ["This order already has a company, or is not booked."];
+  updateOrder(orderId, (x) => ({
+    ...x,
+    companyId: c.id,
+    inspectionCompany: c.name,
+    members: [...x.members.filter((m) => m.role !== "company"), { role: "company", name: c.name }],
+  }));
+  systemMessage(orderId, `The Qualty team added ${c.name} as the inspection company.`);
+  return [];
+}
+
 /** Give the chatroom a group name. An empty name goes back to the default. */
 export function renameRoom(orderId: string, name: string): string[] {
   const clean = name.trim().replace(/\s+/g, " ");

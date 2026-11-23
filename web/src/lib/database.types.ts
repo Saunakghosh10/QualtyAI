@@ -814,6 +814,22 @@ export type Database = {
         Args: { oid: string; price: number }
         Returns: undefined
       }
+      admin_create_order: {
+        Args: {
+          customer_email: string
+          service: string
+          commodity: string
+          location: string
+          inspection_date: string
+          volume_tons: number
+          buyer_name: string
+          seller_name: string
+          company_id?: string | null
+          price_usd?: number | null
+        }
+        Returns: string
+      }
+      assign_company: { Args: { oid: string; cid: string }; Returns: undefined }
       accept_bid: { Args: { bid: string }; Returns: undefined }
       browse_listings: {
         Args: never

@@ -1,0 +1,9 @@
+{
+  "name": "qualty-old-companies",
+  "private": true,
+  "type": "module",
+  "description": "One-off export of old Qualty companies and inspectors, plus a re-registration email sender (dry-run by default).",
+  "dependencies": {
+    "pg": "^8.14.1"
+  }
+}
