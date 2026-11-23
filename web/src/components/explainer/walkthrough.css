@@ -252,7 +252,6 @@
   width: 300px;
   padding: 20px;
   border: 1px solid var(--border-main);
-  border-top: 3px solid var(--accent-primary);
   border-radius: 12px;
   background: var(--bg-card);
   box-shadow: var(--shadow-sm);
