@@ -115,8 +115,8 @@ export default function CompaniesPage() {
           <span className="eyebrow">Pricing</span>
           <h2 id="cp-price-title">You set your price. Qualty adds its fee on top.</h2>
           <p>
-            Customers see your price plus {MARGIN_PCT}%. On enquiries you see the customer&apos;s budget with that fee
-            already taken out, so every figure on your dashboard is what you earn.
+            Customers pay your price plus {MARGIN_PCT}%. On enquiries, Qualty takes its fee out of the budget before you
+            see it, so every number on your dashboard is what you take home.
           </p>
         </div>
         <div className="card-shell cp-split">
