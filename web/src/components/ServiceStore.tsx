@@ -2,7 +2,7 @@
 
 import React, { useMemo, useState, useSyncExternalStore } from "react";
 import { Package, Anchor, Truck, Boat, MapPin, SealCheck, Clock, Users, Gavel, Certificate, FileText, Stamp } from "@phosphor-icons/react";
-import { useDB, SERVICES, listingCustomerPrice, type ServiceListing } from "@/lib/store";
+import { useDB, SERVICES, STANDARD_RATES, listingCustomerPrice, type ServiceListing } from "@/lib/store";
 
 export interface StorePick {
   service: string;
@@ -49,6 +49,10 @@ const ABOUT: Record<string, { Icon: typeof Package; where: string; what: string 
   },
 };
 
+/** Physical inspections are booked from company listings; certificates have one Qualty rate (Vinay, Nov 17). */
+const PHYSICAL = SERVICES.filter((s) => STANDARD_RATES[s] == null);
+export const CERTIFICATES = SERVICES.filter((s) => STANDARD_RATES[s] != null);
+
 const FALLBACK = { Icon: Package, where: "", what: "" };
 
 const ANY = "";
@@ -59,7 +63,7 @@ const useToday = () => useSyncExternalStore(noop, () => new Date().toISOString()
 /** The service store: pick a service and a port, compare the companies that serve it, book one. */
 export default function ServiceStore({ onPick }: { onPick: (p: StorePick) => void }) {
   const listings = useDB().listings;
-  const [service, setService] = useState<string>(SERVICES[0]);
+  const [service, setService] = useState<string>(PHYSICAL[0]);
   const [location, setLocation] = useState<string>(ANY);
 
   const today = useToday();
@@ -77,15 +81,15 @@ export default function ServiceStore({ onPick }: { onPick: (p: StorePick) => voi
     <section id="services" className="section" aria-labelledby="services-title">
       <div className="section-head">
         <span className="eyebrow">Service store</span>
-        <h2 id="services-title">Book a standard inspection</h2>
+        <h2 id="services-title">Book a physical inspection</h2>
         <p>
-          Pick the service and the port. You see every inspection company that covers it, with its price and how fast it
+          Pick the inspection and the port. You see every inspection company that covers it, with its price and how fast it
           turns the job around.
         </p>
       </div>
 
       <div role="radiogroup" aria-label="Service" className="store-services">
-        {SERVICES.map((s) => {
+        {PHYSICAL.map((s) => {
           const a = ABOUT[s] ?? FALLBACK;
           const on = s === service;
           const count = listings.filter((l) => l.active && l.service === s && l.availableTo >= today).length;

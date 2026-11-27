@@ -690,6 +690,7 @@ export const STANDARD_RATES: Partial<Record<string, number>> = {
   "ECTN (Electronic Cargo Tracking Note)": 120,
   "CoC (Certificate of Conformity)": 350,
   "Customs Import Control": 250,
+  "Buyer & Seller Verification": 60,
 };
 
 export interface ServiceListing {
