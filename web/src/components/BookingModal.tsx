@@ -17,7 +17,7 @@ import {
   FileText,
 } from "@phosphor-icons/react";
 import { CommodityParams } from "./CommodityCalibrator";
-import { useDB, useSession, isRemote, specLabel, checkParty, createOrder, findListings, listingNet, listingCustomerPrice, customerPrice, orderRef } from "@/lib/store";
+import { useDB, useSession, isRemote, specLabel, checkParty, createOrder, findListings, listingNet, listingCustomerPrice, customerPrice, orderRef, STANDARD_RATES } from "@/lib/store";
 import { run } from "@/lib/notify";
 
 interface BookingModalProps {
@@ -115,7 +115,10 @@ export default function BookingModal({
       }),
     [listings, formData.serviceName, formData.portLocation, inspectionDate, formData.commodity],
   );
-  const chosen = listingId === "" && !isRemote ? null : (matches.find((l) => l.id === listingId) ?? matches[0] ?? null);
+  // Certificates and verification have one Qualty price across India; the Qualty team assigns the company.
+  const standardRate = STANDARD_RATES[formData.serviceName] ?? null;
+  const fallbackOffered = standardRate != null || !isRemote;
+  const chosen = listingId === "" && fallbackOffered ? null : (matches.find((l) => l.id === listingId) ?? matches[0] ?? null);
   const [spec, setSpec] = useState<CommodityParams | null>(null);
   const [specName, setSpecName] = useState<string | null>(null);
   const [selectedSpecId, setSelectedSpecId] = useState("");
@@ -205,7 +208,7 @@ export default function BookingModal({
       ...(bookingMode === "quick"
         ? chosen
           ? { inspectionCompany: chosen.companyName, priceUSD: listingNet(chosen), listingId: chosen.id }
-          : { priceUSD: 650 }
+          : { priceUSD: standardRate ?? 650 }
         : { budgetUSD: formData.targetBudgetUSD > 0 ? formData.targetBudgetUSD : undefined }),
     }));
     setIsSubmitting(false);
@@ -696,7 +699,9 @@ type="number"
                     <div style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-main)" }}>
                       {matches.length
                         ? `${matches.length} compan${matches.length === 1 ? "y has" : "ies have"} surveyors free at this port on this date`
-                        : isRemote
+                        : standardRate != null
+                          ? "Booked at the Qualty standard rate"
+                          : isRemote
                           ? "No company has listed surveyors for this service, port and date yet. Raise an enquiry instead and companies will bid."
                           : "No company store matches this service, port and date yet"}
                     </div>
@@ -705,7 +710,11 @@ type="number"
                       name: l.companyName,
                       detail: `${l.surveyors} surveyor(s) in ${l.location} · ${l.turnaroundDays} day turnaround`,
                       price: listingCustomerPrice(l),
-                    })), ...(isRemote ? [] : [{ id: "", name: "Qualty partner surveyors", detail: "Standard rate, nearest certified surveyor we can dispatch", price: customerPrice(650) }])].map((opt) => {
+                    })), ...(standardRate != null
+                      ? [{ id: "", name: "Qualty standard rate", detail: "One price across India. The Qualty team assigns a certified inspection company.", price: customerPrice(standardRate) }]
+                      : isRemote
+                        ? []
+                        : [{ id: "", name: "Qualty partner surveyors", detail: "Standard rate, nearest certified surveyor we can dispatch", price: customerPrice(650) }])].map((opt) => {
                       const on = (chosen?.id ?? "") === opt.id;
                       return (
                         <label

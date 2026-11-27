@@ -35,6 +35,7 @@ import {
   type Party,
   invoiceTotal,
   invoicePaid,
+  STANDARD_RATES,
   listingProblems,
   inviteProblems,
   readingDeviations,
@@ -705,7 +706,8 @@ export async function createOrder(
   },
 ): Promise<Order> {
   need();
-  if (input.mode === "quick" && !input.listingId)
+  // Standard-rate services book at Qualty's fixed price; the Qualty team assigns the company.
+  if (input.mode === "quick" && !input.listingId && STANDARD_RATES[input.service] == null)
     throw new Error("Pick an inspection company from the list, or raise an enquiry so companies can bid.");
   const { data, error } = await sb()
     .from("orders")

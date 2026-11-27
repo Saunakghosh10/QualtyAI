@@ -18,6 +18,7 @@ import {
   X,
   ArrowSquareOut,
   ArrowLeft,
+  Scan,
   SidebarSimple,
 } from "@phosphor-icons/react";
 import {
@@ -1231,8 +1232,9 @@ function ComposerBar({ order, role, author, canReport }: { order: Order; role: R
 
   return (
     <form onSubmit={send} style={{ padding: "12px 20px 16px", borderTop: "1px solid var(--border-main)", display: "flex", flexDirection: "column", gap: "10px" }}>
-      <div role="tablist" aria-label="What are you posting" style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-        {modes.map((md) => (
+      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
+        <div role="tablist" aria-label="What are you posting" style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+          {modes.map((md) => (
           <button
             key={md.key}
             type="button"
@@ -1259,7 +1261,30 @@ function ComposerBar({ order, role, author, canReport }: { order: Order; role: R
           >
             {md.icon} {md.label}
           </button>
-        ))}
+          ))}
+        </div>
+        {/* Scanning is planned; shown inactive until it ships (Vinay, Nov 17). */}
+        <button
+          type="button"
+          disabled
+          title="Scanning is coming soon"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "5px",
+            padding: "6px 10px",
+            minHeight: "32px",
+            borderRadius: "999px",
+            fontSize: "12.5px",
+            fontWeight: 600,
+            cursor: "not-allowed",
+            color: "var(--text-muted)",
+            backgroundColor: "transparent",
+            border: "1px dashed var(--border-main)",
+          }}
+        >
+          <Scan size={14} aria-hidden="true" /> Scan <span style={{ fontSize: "11px", fontWeight: 500 }}>Soon</span>
+        </button>
       </div>
 
       {mode === "observation" && (

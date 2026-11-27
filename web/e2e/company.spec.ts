@@ -294,11 +294,35 @@ test("standard-rate services: ECTN is $120 across India", async ({ page }) => {
   await expect(c.getByText("Standard rate", { exact: true })).toBeVisible();
   await expect(c.getByText(/\$120, customers see \$156/)).toBeVisible();
 
+  // Certificates have their own section, apart from physical inspections.
   await page.goto("/");
-  const s = store(page);
-  await s.getByRole("radio", { name: /ECTN/ }).click();
-  await s.getByLabel("Port or city").selectOption("All India");
-  await expect(s.getByText("$156")).toBeVisible();
+  await expect(store(page).getByRole("radio", { name: /ECTN/ })).toHaveCount(0);
+  const certs = page.locator("#certificates");
+  await expect(certs.getByText("$156")).toBeVisible();
+  await certs.getByRole("button", { name: `Book ${ectn}` }).click();
+  await bookingDialog(page).getByRole("button", { name: "Next: Schedule & Budget" }).click();
+  await expect(bookingDialog(page).getByRole("radio", { name: /Acme Surveyors/ })).toBeVisible();
+  await expect(bookingDialog(page).getByText("$156").first()).toBeVisible();
+});
+
+test("certificate and verification book at the Qualty standard rate without a company", async ({ page }) => {
+  await page.goto("/");
+  const certs = page.locator("#certificates");
+  await expect(certs.getByText("$455")).toBeVisible();
+  await certs.getByRole("button", { name: "Book CoC (Certificate of Conformity)" }).click();
+  await bookingDialog(page).getByRole("button", { name: "Next: Schedule & Budget" }).click();
+  await expect(bookingDialog(page).getByRole("radio", { name: /Qualty standard rate/ })).toBeChecked();
+  await page.keyboard.press("Escape");
+
+  const v = page.getByRole("form", { name: "Verify a buyer or seller" });
+  await v.getByRole("button", { name: "Book verification" }).click();
+  await expect(v.getByRole("alert")).toContainText("Add the company name.");
+  await v.getByLabel("Company name").fill("Gulf Sweets Trading");
+  await v.getByLabel("Country").fill("United Arab Emirates");
+  await v.getByLabel("Contact person").fill("Omar");
+  await v.getByLabel("Contact email").fill("omar@gulfsweets.ae");
+  await v.getByRole("button", { name: "Book verification" }).click();
+  await expect(page.getByText(/Verification .* is booked/)).toBeVisible();
 });
 
 test("Qualty team creates an order by hand: booked and invoiced at price × 1.3, or open for bids", async ({ page }) => {

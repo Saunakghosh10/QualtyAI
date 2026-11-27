@@ -9,6 +9,7 @@ import Hero from "@/components/Hero";
 import HowQualtyWorks from "@/components/explainer/HowQualtyWorks";
 import StandardsStrip from "@/components/StandardsStrip";
 import ServiceStore, { type StorePick } from "@/components/ServiceStore";
+import { SpecialisedCertificates, VerificationService } from "@/components/SpecialisedServices";
 import CommodityCalibrator, { CommodityParams } from "@/components/CommodityCalibrator";
 import QualityEvidenceVault from "@/components/QualityEvidenceVault";
 import QualityPilot from "@/components/QualityPilot";
@@ -87,6 +88,12 @@ export default function Home() {
 
       {/* Service store: standard services, companies per port, book now */}
       <ServiceStore onPick={handleStorePick} />
+
+      {/* Certificates at one Qualty rate, apart from physical inspections (Vinay, Nov 17) */}
+      <SpecialisedCertificates onPick={handleStorePick} />
+
+      {/* Highlighted: check a buyer or seller; opens an order and chatroom */}
+      <VerificationService />
 
       {/* Section 01: Multi-Commodity Calibrator, Contract Upload & Quality Checker */}
       <CommodityCalibrator onInjectIntoBooking={handleInjectIntoBooking} />
