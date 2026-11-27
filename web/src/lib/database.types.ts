@@ -814,6 +814,10 @@ export type Database = {
         Args: { oid: string; price: number }
         Returns: undefined
       }
+      admin_stats: {
+        Args: Record<PropertyKey, never>
+        Returns: Json
+      }
       admin_create_order: {
         Args: {
           customer_email: string

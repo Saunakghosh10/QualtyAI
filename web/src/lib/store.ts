@@ -67,3 +67,5 @@ export const setCustomerPrice = pick(L.setCustomerPrice, R.setCustomerPrice);
 export const renameRoom = pick(L.renameRoom, R.renameRoom);
 export const adminCreateOrder = pick(L.adminCreateOrder, R.adminCreateOrder);
 export const assignCompany = pick(L.assignCompany, R.assignCompany);
+/** Admins only; needs Supabase. Demo mode counts from the browser with statsFromDB. */
+export const adminStats = R.adminStats;

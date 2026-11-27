@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import React, { createContext, useContext, useState } from "react";
 import {
   Buildings,
@@ -786,6 +787,9 @@ function QualtyTeamTab() {
           ["Collected", sum((o) => (o.invoice ? invoicePaid(o.invoice) : 0)), "var(--accent-text)"],
         ]}
       />
+      <p style={{ margin: "0 0 12px", fontSize: "13px" }}>
+        <Link href="/admin" style={{ color: "var(--accent-text)" }}>Platform stats: sign-ups, companies, orders and money</Link>
+      </p>
       <NewOrder />
       {orders.length === 0 ? <Empty>No booked orders yet.</Empty> : orders.map((o) => <MarginRow key={o.id} order={o} company={companyName(o)} />)}
     </Panel>

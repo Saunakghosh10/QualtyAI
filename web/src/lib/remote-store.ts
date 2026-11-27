@@ -759,6 +759,14 @@ export async function setCustomerPrice(orderId: string, priceUSD: number): Promi
   return [];
 }
 
+/** Platform numbers for the Qualty team's stats page (admins only, checked in the database). */
+export async function adminStats(): Promise<unknown> {
+  need();
+  const { data, error } = await sb().rpc("admin_stats");
+  if (error) throw new Error(error.message);
+  return data;
+}
+
 /** The Qualty team creates an order for a customer who already has an account. */
 export async function adminCreateOrder(m: ManualOrder): Promise<string[]> {
   need();
